@@ -1,0 +1,4 @@
+image_id,val_position,image_path,dense_melanoma_confidence
+ISIC_0034036,1565,C:\Users\muham\OneDrive\Desktop\TinyML_Project\data\ham10000\ISIC_0034036.jpg,0.9994070529937744
+ISIC_0029370,1916,C:\Users\muham\OneDrive\Desktop\TinyML_Project\data\ham10000\ISIC_0029370.jpg,0.9969176054000854
+ISIC_0032695,143,C:\Users\muham\OneDrive\Desktop\TinyML_Project\data\ham10000\ISIC_0032695.jpg,0.9951831698417664

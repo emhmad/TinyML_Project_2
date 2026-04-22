@@ -1,0 +1,100 @@
+# --- Dataset ---
+dataset:
+  name: HAM10000
+  root: ./data/ham10000/
+  image_size: 224
+  train_split: 0.8
+  seed: 42
+  num_workers: 4
+  metadata_csv: ./data/ham10000/processed_metadata.csv
+
+# --- Models ---
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+
+# --- Fine-tuning ---
+finetune:
+  epochs: 20
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+# --- Augmentation ---
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+# --- Pruning ---
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - cls_token
+    - pos_embed
+    - patch_embed.proj
+
+# --- Non-uniform allocation ---
+nonuniform:
+  target_avg_sparsity: 0.5
+  bins:
+    low_sensitivity: 0.7
+    medium_sensitivity: 0.5
+    high_sensitivity: 0.3
+
+# --- Quantization ---
+quantization:
+  backend: fbgemm
+  calibration_size: 128
+  dtype: qint8
+
+# --- Knowledge Distillation ---
+distillation:
+  temperature: 4.0
+  alpha: 0.7
+  epochs: 20
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+
+recovery:
+  epochs: 5
+  batch_size: 64
+  lr: 1.0e-5
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor]
+  sparsity: 0.5
+
+# --- Evaluation ---
+evaluation:
+  batch_size: 128
+  latency_warmup_runs: 10
+  latency_timed_runs: 100
+
+# --- Logging ---
+logging:
+  results_dir: ./results/logs/
+  checkpoints_dir: ./results/checkpoints/
+  figures_dir: ./results/figures/
