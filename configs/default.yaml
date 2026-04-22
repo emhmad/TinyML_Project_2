@@ -7,6 +7,16 @@ dataset:
   seed: 42
   num_workers: 4
   metadata_csv: ./data/ham10000/processed_metadata.csv
+  # W2: always group the split by lesion_id. Turning this off reintroduces
+  # patient-level leakage and is only allowed for synthetic smoke tests.
+  group_by_lesion: true
+
+# --- Experiment-level (multi-seed) ---
+experiment:
+  # Used by experiments/run_seeds.py. The default is intentionally a small
+  # sweep so quick sanity runs stay cheap; scale up in multi_seed_ciai.yaml.
+  seeds: [42]
+  seed: 42
 
 # --- Models ---
 models:
@@ -51,14 +61,34 @@ pruning:
     - cls_token
     - pos_embed
     - patch_embed.proj
+  # W7 CNN baselines — run the full sweep too, not just magnitude+wanda.
+  cnn_criteria: [magnitude, wanda, taylor, random]
+  cnn_sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  # W8 structured sparsity criteria to sweep. Patterns live in code default
+  # (2:4, 4:8, 1:4); override via --patterns on the CLI if needed.
+  structured_criteria: [magnitude, wanda, taylor]
+  # Which (criterion, sparsity) pairs from the pruning matrix also get
+  # quantization stacking + full p95 latency columns (W9).
+  quant_stack_criteria: [magnitude, wanda, taylor]
+  quant_stack_sparsities: [0.5, 0.7]
+  # W14 release bundle mask coverage.
+  release_criteria: [magnitude, wanda, taylor, random, skewness, xpruner, sparsegpt_pseudo]
 
-# --- Non-uniform allocation ---
+# --- Non-uniform allocation (W11) ---
 nonuniform:
   target_avg_sparsity: 0.5
+  bin_counts: [2, 3, 5]
   bins:
     low_sensitivity: 0.7
     medium_sensitivity: 0.5
     high_sensitivity: 0.3
+  continuous_temperatures: [0.5, 1.0, 2.0]
+  obs_like: false
+  # W11 learnable allocation toggle + optimisation knobs.
+  learnable: false
+  learnable_steps: 200
+  learnable_lr: 0.05
+  learnable_beta: 10.0
 
 # --- Quantization ---
 quantization:
@@ -77,6 +107,7 @@ distillation:
   optimizer: adamw
   scheduler: cosine
 
+# --- Recovery fine-tuning (W10 sweep) ---
 recovery:
   epochs: 5
   batch_size: 64
@@ -86,12 +117,32 @@ recovery:
   scheduler: cosine
   criteria: [magnitude, wanda, taylor]
   sparsity: 0.5
+  cnn_enabled: true
+  sweep:
+    epochs: [1, 5, 10, 20]
+    learning_rates: [1.0e-5, 5.0e-5, 1.0e-4]
+    sparsities: [0.5, 0.7]
 
 # --- Evaluation ---
 evaluation:
   batch_size: 128
   latency_warmup_runs: 10
   latency_timed_runs: 100
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+  # W12 attention-overlap threshold: scalar in [0, 1], or 'adaptive'/'otsu'.
+  attention_overlap_threshold: adaptive
+  # W9 edge-latency targets. Each target is passed through to
+  # experiments/e_edge_latency.py; missing runtimes are skipped with a
+  # warning (no hard failure on machines that don't have the SDK).
+  edge:
+    warmup_seconds: 1.0
+    targets:
+      - {name: torch_cpu, runtime: torch, device: cpu, num_threads: 4}
+      - {name: onnx_cpu, runtime: onnx, providers: [CPUExecutionProvider], num_threads: 4}
+      - {name: onnx_coreml, runtime: onnx, providers: [CoreMLExecutionProvider, CPUExecutionProvider], num_threads: 4}
+      - {name: tflite_cpu, runtime: tflite, num_threads: 4}
 
 # --- Logging ---
 logging:

@@ -1,3 +1,22 @@
+"""
+Attention visualisation + quantitative overlap (W12).
+
+Produces two artefacts:
+
+1. The original three-panel qualitative figure (kept so the paper's
+   visual argument still works).
+2. `attention_overlap.csv` — per-sample IoU / pointing-game / mass-in-
+   mask for every melanoma validation image that has a lesion
+   segmentation mask available, across every pruning condition in
+   `CONDITIONS`. Plus `attention_overlap_summary.csv` with the per-
+   condition aggregates so downstream tables can compare Wanda vs.
+   magnitude attention diffusion with real numbers, not eyeballing.
+
+Mask lookup: expects a `dataset.segmentation_mask_dir` path in the
+config; each `<image_id>.png` / `<image_id>_segmentation.png` is looked
+up by stem against the metadata CSV. Samples without a mask are counted
+and reported but skip the quantitative pass.
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,17 +33,20 @@ import torch.nn.functional as F
 from PIL import Image
 
 from data.dataset import CLASS_NAMES, get_transforms
+from evaluation.attention_overlap import attention_overlap, summarise_overlap
 from experiments.common import build_splits, load_trained_model, metadata_csv_path
+from models.attention_rollout import AttentionRollout
 from pruning.masking import apply_masks
-from utils.config import get_device, load_config
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed
 from utils.io import ensure_dir
+
 
 MEL_INDEX = CLASS_NAMES.index("mel")
 CONDITIONS = [
     ("dense", "Dense", None),
-    ("magnitude", "Magnitude 50%", "deit_small_magnitude_s0.5.pt"),
-    ("wanda", "Wanda 50%", "deit_small_wanda_s0.5.pt"),
-    ("taylor", "Taylor 50%", "deit_small_taylor_s0.5.pt"),
+    ("magnitude", "Magnitude 50%", "magnitude_s0.5.pt"),
+    ("wanda", "Wanda 50%", "wanda_s0.5.pt"),
+    ("taylor", "Taylor 50%", "taylor_s0.5.pt"),
 ]
 
 
@@ -33,74 +55,21 @@ class SampleRecord:
     val_position: int
     image_id: str
     image_path: Path
+    mask_path: Path | None
     melanoma_confidence: float
 
 
-class AttentionRollout:
-    def __init__(self, model: torch.nn.Module) -> None:
-        self.model = model
-        self.attentions: list[torch.Tensor] = []
-        self.handles: list[torch.utils.hooks.RemovableHandle] = []
-        self._orig_fused_flags: dict[int, bool] = {}
-        self._register_hooks()
-
-    def _register_hooks(self) -> None:
-        for block in self.model.blocks:
-            attn = block.attn
-            if hasattr(attn, "fused_attn"):
-                self._orig_fused_flags[id(attn)] = bool(attn.fused_attn)
-                attn.fused_attn = False
-
-            if hasattr(attn, "attn_drop"):
-                self.handles.append(attn.attn_drop.register_forward_hook(self._hook_fn))
-            else:
-                raise RuntimeError("Attention module does not expose attn_drop; rollout hook cannot be attached.")
-
-    def _hook_fn(self, module, inputs, output) -> None:
-        self.attentions.append(output.detach().cpu())
-
-    def clear(self) -> None:
-        self.attentions.clear()
-
-    def close(self) -> None:
-        for handle in self.handles:
-            handle.remove()
-        self.handles.clear()
-        for block in self.model.blocks:
-            attn = block.attn
-            if hasattr(attn, "fused_attn") and id(attn) in self._orig_fused_flags:
-                attn.fused_attn = self._orig_fused_flags[id(attn)]
-
-    def get_rollout(self, image_tensor: torch.Tensor, device: torch.device) -> np.ndarray:
-        self.clear()
-        self.model.eval()
-        with torch.no_grad():
-            _ = self.model(image_tensor.to(device, non_blocking=True))
-
-        if not self.attentions:
-            raise RuntimeError("No attention tensors were collected during rollout.")
-
-        joint_attention = None
-        for attention in self.attentions:
-            attn = attention.mean(dim=1)[0]
-            identity = torch.eye(attn.size(-1), dtype=attn.dtype)
-            attn = 0.5 * attn + 0.5 * identity
-            attn = attn / attn.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-            joint_attention = attn if joint_attention is None else attn @ joint_attention
-
-        prefix_tokens = int(getattr(self.model, "num_prefix_tokens", 1))
-        spatial_tokens = joint_attention[0, prefix_tokens:]
-        grid_h, grid_w = self.model.patch_embed.grid_size
-        rollout = spatial_tokens.reshape(grid_h, grid_w)
-        rollout = F.interpolate(
-            rollout.unsqueeze(0).unsqueeze(0),
-            size=(int(image_tensor.shape[-2]), int(image_tensor.shape[-1])),
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze()
-        rollout = rollout - rollout.min()
-        rollout = rollout / rollout.max().clamp_min(1e-8)
-        return rollout.numpy()
+def _find_mask(image_id: str, mask_dir: Path | None) -> Path | None:
+    if mask_dir is None or not mask_dir.exists():
+        return None
+    for candidate in (
+        mask_dir / f"{image_id}.png",
+        mask_dir / f"{image_id}_segmentation.png",
+        mask_dir / f"{image_id}_mask.png",
+    ):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _resolve_image_path(raw_path: str, metadata_csv: Path, image_root: Path) -> Path:
@@ -109,8 +78,6 @@ def _resolve_image_path(raw_path: str, metadata_csv: Path, image_root: Path) -> 
     if preferred.exists():
         return preferred
     if image_path.is_absolute():
-        if image_path.exists():
-            return image_path
         return image_path
     fallback = image_root / image_path
     if fallback.exists():
@@ -136,7 +103,9 @@ def _predict(model: torch.nn.Module, image_tensor: torch.Tensor, device: torch.d
     return CLASS_NAMES[pred_idx], float(probs[pred_idx].item())
 
 
-def _select_samples(config: dict, device: torch.device) -> tuple[list[SampleRecord], torch.Tensor]:
+def _collect_melanoma_samples(
+    config: dict, device: torch.device, mask_dir: Path | None
+) -> tuple[list[SampleRecord], object]:
     model_name = config["models"]["teacher"]
     alias = model_name.replace("_patch16_224", "")
     model = load_trained_model(config, model_name, device, checkpoint_name=f"{alias}_ham10000")
@@ -154,42 +123,43 @@ def _select_samples(config: dict, device: torch.device) -> tuple[list[SampleReco
         augmentation_cfg=config["augmentation"],
     )
 
-    melanoma_candidates: list[SampleRecord] = []
+    samples: list[SampleRecord] = []
     for position, row in val_frame[val_frame["label_idx"] == MEL_INDEX].iterrows():
         image_path = _resolve_image_path(str(row["image_path"]), metadata_csv, dataset_root)
-        image = Image.open(image_path).convert("RGB")
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except FileNotFoundError:
+            continue
         tensor = val_transform(image)
         with torch.no_grad():
             logits = model(tensor.unsqueeze(0).to(device, non_blocking=True))
             probs = torch.softmax(logits, dim=1)[0].detach().cpu()
-        pred_idx = int(probs.argmax().item())
-        if pred_idx != MEL_INDEX:
-            continue
-        melanoma_candidates.append(
+        mel_conf = float(probs[MEL_INDEX].item())
+        samples.append(
             SampleRecord(
                 val_position=int(position),
-                image_id=image_path.stem,
+                image_id=str(row.get("image_id", Path(row["image_path"]).stem)),
                 image_path=image_path,
-                melanoma_confidence=float(probs[MEL_INDEX].item()),
+                mask_path=_find_mask(str(row.get("image_id", Path(row["image_path"]).stem)), mask_dir),
+                melanoma_confidence=mel_conf,
             )
         )
-
-    if len(melanoma_candidates) < 3:
-        raise RuntimeError("Could not find at least 3 correctly classified melanoma images for attention visualization.")
-
-    melanoma_candidates.sort(key=lambda sample: sample.melanoma_confidence, reverse=True)
-    shortlist = melanoma_candidates[: min(20, len(melanoma_candidates))]
-    pick_positions = np.linspace(0, len(shortlist) - 1, 3, dtype=int)
-    selected = [shortlist[index] for index in pick_positions]
-    return selected, val_transform
+    return samples, val_transform
 
 
-def _load_condition_model(config: dict, device: torch.device, criterion_name: str) -> torch.nn.Module:
-    model_name = config["models"]["teacher"]
-    alias = model_name.replace("_patch16_224", "")
-    model = load_trained_model(config, model_name, device, checkpoint_name=f"{alias}_ham10000")
+def _load_condition_model(
+    config: dict,
+    device: torch.device,
+    criterion_name: str,
+    alias: str,
+) -> torch.nn.Module:
+    model = load_trained_model(config, config["models"]["teacher"], device, checkpoint_name=f"{alias}_ham10000")
     if criterion_name != "dense":
         mask_path = Path(config["logging"]["checkpoints_dir"]) / "masks" / f"{alias}_{criterion_name}_s0.5.pt"
+        if not mask_path.exists():
+            raise FileNotFoundError(
+                f"Missing mask for attention viz condition {criterion_name}: {mask_path}"
+            )
         masks = torch.load(mask_path, map_location="cpu")
         apply_masks(model, masks)
     return model
@@ -204,76 +174,180 @@ def _overlay_axis(ax, image_np: np.ndarray, rollout: np.ndarray, title: str) -> 
     ax.grid(False)
 
 
-def run(config_path: str) -> None:
+def _qualitative_figure(
+    samples: list[SampleRecord],
+    models_by_condition: dict[str, tuple[str, torch.nn.Module, AttentionRollout]],
+    val_transform,
+    config: dict,
+    device: torch.device,
+    figures_dir: Path,
+    attention_dir: Path,
+) -> None:
+    """Reproduce the original 3 melanoma × 4 condition figure."""
+    picks = samples[: min(3, len(samples))]
+    if len(picks) < 3:
+        return
+    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    for row_index, sample in enumerate(picks):
+        raw_image = Image.open(sample.image_path).convert("RGB")
+        tensor = val_transform(raw_image)
+        image_np = _denormalize_image(tensor, config)
+        for col_index, (criterion_name, label, _) in enumerate(CONDITIONS):
+            _, model, rollout = models_by_condition[criterion_name]
+            pred_label, pred_conf = _predict(model, tensor, device)
+            rollout_map = rollout.get_rollout(tensor.unsqueeze(0), device)
+            title = f"{label}\n{pred_label} {pred_conf:.2f}"
+            ax = axes[row_index, col_index]
+            _overlay_axis(ax, image_np, rollout_map, title)
+            if col_index == 0:
+                ax.set_ylabel(sample.image_id, rotation=90, fontsize=11)
+
+            panel_fig, panel_ax = plt.subplots(figsize=(4, 4))
+            _overlay_axis(panel_ax, image_np, rollout_map, title)
+            panel_fig.savefig(
+                attention_dir / f"img{row_index + 1}_{criterion_name}.png",
+                dpi=300,
+                bbox_inches="tight",
+            )
+            plt.close(panel_fig)
+    fig.suptitle("Where Does the Model Look? Attention Maps Under Pruning", fontsize=16)
+    fig.tight_layout()
+    fig.savefig(figures_dir / "fig8_attention_maps.pdf", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _quantitative_overlap(
+    samples: list[SampleRecord],
+    models_by_condition: dict[str, tuple[str, torch.nn.Module, AttentionRollout]],
+    val_transform,
+    device: torch.device,
+    overlap_path: Path,
+    summary_path: Path,
+    seed: int,
+    threshold: float | str,
+) -> None:
+    samples_with_masks = [s for s in samples if s.mask_path is not None]
+    if not samples_with_masks:
+        return
+
+    per_sample_rows: list[dict] = []
+    for sample in samples_with_masks:
+        raw_image = Image.open(sample.image_path).convert("RGB")
+        mask = np.asarray(Image.open(sample.mask_path).convert("L"))
+        tensor = val_transform(raw_image)
+        for criterion_name, _, _ in CONDITIONS:
+            if criterion_name not in models_by_condition:
+                continue
+            _, model, rollout = models_by_condition[criterion_name]
+            rollout_map = rollout.get_rollout(tensor.unsqueeze(0), device)
+            result = attention_overlap(rollout_map, mask, threshold=threshold)
+            row = {
+                "seed": seed,
+                "image_id": sample.image_id,
+                "val_position": sample.val_position,
+                "condition": criterion_name,
+                **result.as_row(),
+            }
+            per_sample_rows.append(row)
+
+    pd.DataFrame(per_sample_rows).to_csv(overlap_path, index=False)
+
+    summary_rows = []
+    frame = pd.DataFrame(per_sample_rows)
+    for condition, sub in frame.groupby("condition"):
+        summary = summarise_overlap(
+            [_row_to_overlap(row) for row in sub.to_dict(orient="records")]
+        )
+        summary_rows.append({"seed": seed, "condition": condition, **summary})
+    pd.DataFrame(summary_rows).to_csv(summary_path, index=False)
+
+
+def _row_to_overlap(row: dict):
+    from evaluation.attention_overlap import OverlapResult
+
+    return OverlapResult(
+        iou=float(row["iou"]),
+        pointing_game_hit=bool(int(row["pointing_game_hit"])),
+        mass_in_mask=float(row["mass_in_mask"]),
+        threshold=float(row["threshold"]),
+        attention_area=float(row["attention_area"]),
+        mask_area=float(row["mask_area"]),
+    )
+
+
+def run(config_path: str, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    seed = resolve_seed(config)
     device = get_device()
+
     figures_dir = ensure_dir(Path(config["logging"]["figures_dir"]))
     attention_dir = ensure_dir(figures_dir / "attention")
     logs_dir = ensure_dir(Path(config["logging"]["results_dir"]))
 
-    samples, val_transform = _select_samples(config, device)
+    mask_dir_cfg = config.get("dataset", {}).get("segmentation_mask_dir")
+    mask_dir = Path(mask_dir_cfg) if mask_dir_cfg else None
+    samples, val_transform = _collect_melanoma_samples(config, device, mask_dir)
 
     selection_rows = [
         {
+            "seed": seed,
             "image_id": sample.image_id,
             "val_position": sample.val_position,
             "image_path": str(sample.image_path),
             "dense_melanoma_confidence": sample.melanoma_confidence,
+            "has_mask": int(sample.mask_path is not None),
         }
         for sample in samples
     ]
     pd.DataFrame(selection_rows).to_csv(logs_dir / "attention_viz_samples.csv", index=False)
 
-    models: dict[str, tuple[str, torch.nn.Module, AttentionRollout]] = {}
+    alias = config["models"]["teacher"].replace("_patch16_224", "")
+    models_by_condition: dict[str, tuple[str, torch.nn.Module, AttentionRollout]] = {}
     try:
         for criterion_name, label, _ in CONDITIONS:
-            model = _load_condition_model(config, device, criterion_name)
+            model = _load_condition_model(config, device, criterion_name, alias)
             rollout = AttentionRollout(model)
-            models[criterion_name] = (label, model, rollout)
+            models_by_condition[criterion_name] = (label, model, rollout)
 
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
-        for row_index, sample in enumerate(samples):
-            raw_image = Image.open(sample.image_path).convert("RGB")
-            tensor = val_transform(raw_image)
-            image_np = _denormalize_image(tensor, config)
+        samples_for_quality = sorted(samples, key=lambda s: s.melanoma_confidence, reverse=True)
+        _qualitative_figure(
+            samples_for_quality,
+            models_by_condition,
+            val_transform,
+            config,
+            device,
+            figures_dir,
+            attention_dir,
+        )
 
-            for col_index, (criterion_name, label, _) in enumerate(CONDITIONS):
-                _, model, rollout = models[criterion_name]
-                pred_label, pred_conf = _predict(model, tensor, device)
-                rollout_map = rollout.get_rollout(tensor.unsqueeze(0), device)
-                title = f"{label}\n{pred_label} {pred_conf:.2f}"
-                ax = axes[row_index, col_index]
-                _overlay_axis(ax, image_np, rollout_map, title)
-                if col_index == 0:
-                    ax.set_ylabel(sample.image_id, rotation=90, fontsize=11)
-
-                panel_fig, panel_ax = plt.subplots(figsize=(4, 4))
-                _overlay_axis(panel_ax, image_np, rollout_map, title)
-                panel_fig.savefig(
-                    attention_dir / f"img{row_index + 1}_{criterion_name}.png",
-                    dpi=300,
-                    bbox_inches="tight",
-                )
-                plt.close(panel_fig)
-
-        fig.suptitle("Where Does the Model Look? Attention Maps Under Pruning", fontsize=16)
-        fig.tight_layout()
-        fig.savefig(figures_dir / "fig8_attention_maps.pdf", dpi=300, bbox_inches="tight")
-        plt.close(fig)
+        threshold = config.get("evaluation", {}).get("attention_overlap_threshold", "adaptive")
+        _quantitative_overlap(
+            samples=samples,
+            models_by_condition=models_by_condition,
+            val_transform=val_transform,
+            device=device,
+            overlap_path=logs_dir / "attention_overlap.csv",
+            summary_path=logs_dir / "attention_overlap_summary.csv",
+            seed=seed,
+            threshold=threshold,
+        )
     finally:
-        for _, model, rollout in models.values():
+        for _, _, rollout in models_by_condition.values():
             rollout.close()
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate DeiT attention rollout visualizations.")
+    parser = argparse.ArgumentParser(description="DeiT attention rollout + W12 overlap analysis.")
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config)
+    run(args.config, seed_override=args.seed)
 
 
 if __name__ == "__main__":

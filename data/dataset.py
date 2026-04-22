@@ -3,21 +3,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, StratifiedShuffleSplit
 from torch.utils.data import Dataset
 from torchvision import transforms
 
 LABEL_MAP = {"akiec": 0, "bcc": 1, "bkl": 2, "df": 3, "mel": 4, "nv": 5, "vasc": 6}
 CLASS_NAMES = ["akiec", "bcc", "bkl", "df", "mel", "nv", "vasc"]
 
+# Columns that must exist in processed_metadata.csv for lesion-grouped splitting.
+REQUIRED_COLUMNS = {"image_path", "label_idx"}
+LESION_GROUP_COLUMN = "lesion_id"
+
 
 class HAM10000Dataset(Dataset):
-    """
-    HAM10000 dataset backed by a processed metadata CSV.
-    """
+    """HAM10000 dataset backed by a processed metadata CSV."""
 
     def __init__(
         self,
@@ -30,6 +33,9 @@ class HAM10000Dataset(Dataset):
         self.image_dir = Path(image_dir) if image_dir else None
         self.transform = transform
         self.frame = pd.read_csv(self.metadata_csv)
+        missing = REQUIRED_COLUMNS - set(self.frame.columns)
+        if missing:
+            raise ValueError(f"Metadata CSV missing required columns: {sorted(missing)}")
         if indices is not None:
             self.frame = self.frame.iloc[indices].reset_index(drop=True)
 
@@ -54,13 +60,64 @@ class HAM10000Dataset(Dataset):
         return image, label
 
 
-def get_train_val_splits(metadata_csv: str | Path, train_ratio: float = 0.8, seed: int = 42) -> tuple[list[int], list[int]]:
-    frame = pd.read_csv(metadata_csv)
+def _stratified_image_split(
+    frame: pd.DataFrame, train_ratio: float, seed: int
+) -> tuple[list[int], list[int]]:
     splitter = StratifiedShuffleSplit(n_splits=1, train_size=train_ratio, random_state=seed)
     labels = frame["label_idx"].to_numpy()
-    indices = range(len(frame))
-    train_indices, val_indices = next(splitter.split(list(indices), labels))
-    return train_indices.tolist(), val_indices.tolist()
+    train_idx, val_idx = next(splitter.split(np.arange(len(frame)), labels))
+    return train_idx.tolist(), val_idx.tolist()
+
+
+def _lesion_grouped_split(
+    frame: pd.DataFrame, train_ratio: float, seed: int
+) -> tuple[list[int], list[int]]:
+    """
+    Patient/lesion-grouped split: every image sharing a lesion_id goes
+    entirely to train or to val. This is the W2 fix — prevents the
+    per-lesion leakage that inflates every metric when HAM10000 is split
+    image-wise (same lesion can contribute duplicate images to both sides).
+    """
+    groups = frame[LESION_GROUP_COLUMN].to_numpy()
+    splitter = GroupShuffleSplit(n_splits=1, train_size=train_ratio, random_state=seed)
+    train_idx, val_idx = next(splitter.split(np.arange(len(frame)), groups=groups))
+
+    # Sanity-check: no lesion_id appears on both sides.
+    train_groups = set(groups[train_idx].tolist())
+    val_groups = set(groups[val_idx].tolist())
+    overlap = train_groups & val_groups
+    if overlap:
+        raise RuntimeError(
+            f"Lesion-grouped split produced {len(overlap)} overlapping lesion_ids; "
+            "this is a bug in the splitter."
+        )
+    return train_idx.tolist(), val_idx.tolist()
+
+
+def get_train_val_splits(
+    metadata_csv: str | Path,
+    train_ratio: float = 0.8,
+    seed: int = 42,
+    group_by_lesion: bool = True,
+) -> tuple[list[int], list[int]]:
+    """
+    Returns (train_indices, val_indices) into the processed metadata CSV.
+
+    When `group_by_lesion=True` (default, and the correct setting for any
+    claim-bearing experiment), uses GroupShuffleSplit on `lesion_id`.
+    Falls back to stratified-by-class only if `lesion_id` is unavailable
+    and the caller explicitly opts in via `group_by_lesion=False`.
+    """
+    frame = pd.read_csv(metadata_csv)
+    if group_by_lesion:
+        if LESION_GROUP_COLUMN not in frame.columns:
+            raise ValueError(
+                f"Processed metadata is missing '{LESION_GROUP_COLUMN}'. "
+                "Re-run data/download_ham10000.py to regenerate it — patient-level "
+                "splits require this column and image-level splits leak patient identity."
+            )
+        return _lesion_grouped_split(frame, train_ratio=train_ratio, seed=seed)
+    return _stratified_image_split(frame, train_ratio=train_ratio, seed=seed)
 
 
 def compute_class_weights(metadata_csv: str | Path, train_indices: list[int]) -> torch.Tensor:

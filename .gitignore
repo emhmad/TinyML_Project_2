@@ -1,1 +1,30 @@
+# Dataset (too large, fetched on-demand; see data/download_ham10000.py)
 data/ham10000/
+data/*.zip
+
+# Experiment outputs — regenerated per-run
+results/
+release/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/
+
+# Transient build artefacts
+*.onnx
+*.tflite

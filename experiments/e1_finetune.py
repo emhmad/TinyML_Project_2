@@ -8,86 +8,39 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from data.dataset import HAM10000Dataset, compute_class_weights, get_train_val_splits, get_transforms
 from evaluation.metrics import evaluate_model
+from experiments.common import build_dataloaders, is_writer_process, model_alias
 from models.load_models import load_deit_model
-from utils.config import get_device, load_config, should_pin_memory
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed
+from utils.distributed import (
+    barrier,
+    init_distributed,
+    is_main_process,
+    maybe_wrap_ddp,
+    shutdown_distributed,
+    unwrap_model,
+    world_size,
+)
 from utils.io import append_csv_row, ensure_dir, save_checkpoint
-
-
-def _make_loaders(config: dict[str, Any]) -> tuple[DataLoader, DataLoader, torch.Tensor]:
-    dataset_cfg = config["dataset"]
-    finetune_cfg = config["finetune"]
-    pin_memory = should_pin_memory()
-    metadata_csv = dataset_cfg.get("metadata_csv") or str(Path(dataset_cfg["root"]) / "processed_metadata.csv")
-
-    train_indices, val_indices = get_train_val_splits(
-        metadata_csv,
-        train_ratio=float(dataset_cfg.get("train_split", 0.8)),
-        seed=int(dataset_cfg.get("seed", 42)),
-    )
-    max_train_samples = dataset_cfg.get("max_train_samples")
-    max_val_samples = dataset_cfg.get("max_val_samples")
-    if max_train_samples is not None:
-        train_indices = train_indices[: int(max_train_samples)]
-    if max_val_samples is not None:
-        val_indices = val_indices[: int(max_val_samples)]
-    class_weights = compute_class_weights(metadata_csv, train_indices)
-
-    train_dataset = HAM10000Dataset(
-        metadata_csv=metadata_csv,
-        transform=get_transforms(
-            split="train",
-            image_size=int(dataset_cfg.get("image_size", 224)),
-            resize_size=int(config["augmentation"].get("resize_size", 256)),
-            augmentation_cfg=config["augmentation"],
-        ),
-        indices=train_indices,
-    )
-    val_dataset = HAM10000Dataset(
-        metadata_csv=metadata_csv,
-        transform=get_transforms(
-            split="val",
-            image_size=int(dataset_cfg.get("image_size", 224)),
-            resize_size=int(config["augmentation"].get("resize_size", 256)),
-            augmentation_cfg=config["augmentation"],
-        ),
-        indices=val_indices,
-    )
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=int(finetune_cfg.get("batch_size", 64)),
-        shuffle=True,
-        num_workers=int(dataset_cfg.get("num_workers", 4)),
-        pin_memory=pin_memory,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=int(config["evaluation"].get("batch_size", 128)),
-        shuffle=False,
-        num_workers=int(dataset_cfg.get("num_workers", 4)),
-        pin_memory=pin_memory,
-    )
-    return train_loader, val_loader, class_weights
+from utils.seed import set_seed
 
 
 def _train_one_model(
     model_name: str,
     config: dict[str, Any],
     device: torch.device,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
+    train_loader,
+    val_loader,
     class_weights: torch.Tensor,
 ) -> None:
-    model = load_deit_model(
+    base_model = load_deit_model(
         model_name=model_name,
         num_classes=int(config["models"].get("num_classes", 7)),
         pretrained=bool(config["models"].get("pretrained", True)),
-    ).to(device)
+    )
+    model = maybe_wrap_ddp(base_model, device)
 
     finetune_cfg = config["finetune"]
     optimizer = AdamW(
@@ -95,27 +48,36 @@ def _train_one_model(
         lr=float(finetune_cfg.get("lr", 1e-4)),
         weight_decay=float(finetune_cfg.get("weight_decay", 0.05)),
     )
-    scheduler = CosineAnnealingLR(optimizer, T_max=max(1, int(finetune_cfg.get("epochs", 20))))
+    epochs = max(1, int(finetune_cfg.get("epochs", 20)))
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     criterion = nn.CrossEntropyLoss(
         weight=class_weights.to(device) if finetune_cfg.get("use_weighted_loss", True) else None
     )
 
     checkpoint_dir = ensure_dir(config["logging"]["checkpoints_dir"])
     results_dir = ensure_dir(config["logging"]["results_dir"])
-    alias = model_name.replace("_patch16_224", "")
+    alias = model_alias(model_name)
     checkpoint_path = checkpoint_dir / f"{alias}_ham10000.pth"
     history_path = results_dir / "finetune_history.csv"
+    seed = resolve_seed(config)
 
     best_metric = float("-inf")
-    best_state = model.state_dict()
+    best_state: dict[str, torch.Tensor] | None = None
 
-    for epoch in range(int(finetune_cfg.get("epochs", 20))):
+    for epoch in range(epochs):
+        if hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch)
+
         model.train()
         running_loss = 0.0
         running_examples = 0
         running_correct = 0
 
-        for images, labels in tqdm(train_loader, desc=f"{alias} epoch {epoch + 1}", leave=False):
+        iterator = train_loader
+        if is_main_process():
+            iterator = tqdm(train_loader, desc=f"{alias} epoch {epoch + 1}", leave=False)
+
+        for images, labels in iterator:
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
@@ -131,55 +93,81 @@ def _train_one_model(
             running_correct += int((logits.argmax(dim=1) == labels).sum().item())
 
         scheduler.step()
-        val_results = evaluate_model(model, val_loader, device)
-        row = {
-            "model": alias,
-            "epoch": epoch + 1,
-            "train_loss": running_loss / max(1, running_examples),
-            "train_accuracy": running_correct / max(1, running_examples),
-            "val_balanced_accuracy": val_results["balanced_accuracy"],
-            "val_melanoma_sensitivity": val_results["melanoma_sensitivity"],
-        }
-        append_csv_row(history_path, row)
+        barrier()
 
-        if val_results["balanced_accuracy"] > best_metric:
-            best_metric = val_results["balanced_accuracy"]
-            best_state = {name: tensor.detach().cpu().clone() for name, tensor in model.state_dict().items()}
-            save_checkpoint(
-                checkpoint_path,
-                model,
-                model_name=model_name,
-                best_balanced_accuracy=best_metric,
+        if is_main_process():
+            val_results = evaluate_model(unwrap_model(model), val_loader, device)
+            append_csv_row(
+                history_path,
+                {
+                    "seed": seed,
+                    "model": alias,
+                    "epoch": epoch + 1,
+                    "train_loss": running_loss / max(1, running_examples),
+                    "train_accuracy": running_correct / max(1, running_examples),
+                    "val_balanced_accuracy": val_results["balanced_accuracy"],
+                    "val_melanoma_sensitivity": val_results["melanoma_sensitivity"],
+                    "val_melanoma_auroc": val_results.get("melanoma_auroc"),
+                    "val_macro_auroc": val_results.get("macro_auroc"),
+                    "val_ece": val_results.get("ece_top_label"),
+                },
             )
 
-    model.load_state_dict(best_state)
-    save_checkpoint(
-        checkpoint_path,
-        model,
-        model_name=model_name,
-        best_balanced_accuracy=best_metric,
-    )
+            if val_results["balanced_accuracy"] > best_metric:
+                best_metric = float(val_results["balanced_accuracy"])
+                best_state = {
+                    name: tensor.detach().cpu().clone()
+                    for name, tensor in unwrap_model(model).state_dict().items()
+                }
+                save_checkpoint(
+                    checkpoint_path,
+                    unwrap_model(model),
+                    model_name=model_name,
+                    seed=seed,
+                    best_balanced_accuracy=best_metric,
+                )
+        barrier()
+
+    if is_main_process() and best_state is not None:
+        unwrap_model(model).load_state_dict(best_state)
+        save_checkpoint(
+            checkpoint_path,
+            unwrap_model(model),
+            model_name=model_name,
+            seed=seed,
+            best_balanced_accuracy=best_metric,
+        )
+    barrier()
 
 
-def run(config_path: str, model_names: list[str] | None = None) -> None:
+def run(config_path: str, model_names: list[str] | None = None, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    seed = resolve_seed(config)
+    set_seed(seed)
+    init_distributed()
     device = get_device()
-    train_loader, val_loader, class_weights = _make_loaders(config)
+
+    train_loader, val_loader, _, class_weights = build_dataloaders(config, include_train=True)
     model_names = model_names or [config["models"]["student"], config["models"]["teacher"]]
     for model_name in model_names:
         _train_one_model(model_name, config, device, train_loader, val_loader, class_weights)
+
+    shutdown_distributed()
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine-tune DeiT models on HAM10000.")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--models", nargs="*", default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Override config seed for this run.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config, args.models)
+    run(args.config, args.models, seed_override=args.seed)
 
 
 if __name__ == "__main__":

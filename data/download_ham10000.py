@@ -60,7 +60,27 @@ def build_processed_metadata(source_dir: str | Path, output_dir: str | Path) -> 
 
     frame["label_idx"] = frame["dx"].map(LABEL_MAP)
     frame["label_name"] = frame["dx"]
-    processed = frame[["image_path", "label_idx", "label_name"]].copy()
+    # Preserve lesion_id (and image_id / dx_type / age / sex / localization when
+    # available) so downstream code can do lesion-grouped splitting and per-site
+    # analysis. Dropping lesion_id here was the root cause of the image-level
+    # leakage flagged in Tier 1 / Weakness 2.
+    passthrough_cols = [
+        "lesion_id",
+        "image_id",
+        "dx_type",
+        "age",
+        "sex",
+        "localization",
+    ]
+    keep = ["image_path", "label_idx", "label_name"] + [
+        col for col in passthrough_cols if col in frame.columns
+    ]
+    processed = frame[keep].copy()
+    if "lesion_id" not in processed.columns:
+        raise ValueError(
+            "Raw HAM10000_metadata.csv did not contain 'lesion_id'. "
+            "Download the full metadata file (not a trimmed version) and rerun."
+        )
 
     output_path = output_dir / "processed_metadata.csv"
     processed.to_csv(output_path, index=False)

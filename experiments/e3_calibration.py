@@ -7,22 +7,20 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
-from data.dataset import HAM10000Dataset, compute_class_weights, get_train_val_splits, get_transforms
+from data.dataset import HAM10000Dataset, compute_class_weights, get_transforms
+from experiments.common import build_splits, metadata_csv_path, model_alias
 from models.load_models import get_linear_layer_names, load_deit_model
 from pruning.hooks import ActivationCollector, GradientCollector
-from utils.config import get_device, load_config, should_pin_memory
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed, should_pin_memory
 from utils.io import ensure_dir, load_checkpoint_state
+from utils.seed import set_seed, worker_init_fn
 
 
 def _build_calibration_loader(config):
     dataset_cfg = config["dataset"]
     pin_memory = should_pin_memory()
-    metadata_csv = dataset_cfg.get("metadata_csv") or str(Path(dataset_cfg["root"]) / "processed_metadata.csv")
-    train_indices, _ = get_train_val_splits(
-        metadata_csv,
-        train_ratio=float(dataset_cfg.get("train_split", 0.8)),
-        seed=int(dataset_cfg.get("seed", 42)),
-    )
+    metadata_csv = metadata_csv_path(config)
+    train_indices, _ = build_splits(config)
     max_train_samples = dataset_cfg.get("max_train_samples")
     if max_train_samples is not None:
         train_indices = train_indices[: int(max_train_samples)]
@@ -44,13 +42,17 @@ def _build_calibration_loader(config):
         shuffle=False,
         num_workers=int(dataset_cfg.get("num_workers", 4)),
         pin_memory=pin_memory,
+        worker_init_fn=worker_init_fn,
     )
     class_weights = compute_class_weights(metadata_csv, train_indices)
     return loader, class_weights
 
 
-def run(config_path: str, model_names: list[str] | None = None) -> None:
+def run(config_path: str, model_names: list[str] | None = None, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    set_seed(resolve_seed(config))
     device = get_device()
     checkpoint_dir = Path(config["logging"]["checkpoints_dir"])
     output_dir = ensure_dir(checkpoint_dir / "calibration")
@@ -63,7 +65,7 @@ def run(config_path: str, model_names: list[str] | None = None) -> None:
             num_classes=int(config["models"].get("num_classes", 7)),
             pretrained=False,
         ).to(device)
-        alias = model_name.replace("_patch16_224", "")
+        alias = model_alias(model_name)
         checkpoint_path = checkpoint_dir / f"{alias}_ham10000.pth"
         model.load_state_dict(load_checkpoint_state(checkpoint_path, map_location=device))
         target_layers = get_linear_layer_names(model, exclude_keywords=config["pruning"]["exclude_layers"])
@@ -94,12 +96,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect pruning calibration tensors.")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--models", nargs="*", default=None)
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config, args.models)
+    run(args.config, args.models, seed_override=args.seed)
 
 
 if __name__ == "__main__":

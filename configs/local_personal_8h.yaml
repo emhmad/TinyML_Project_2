@@ -1,0 +1,155 @@
+# Personal-compute config — tuned to fit within an 8-hour single-machine
+# budget on an Apple-Silicon MacBook (MPS backend) or a consumer CUDA
+# desktop. Honest-reframe assumptions encoded:
+#
+#   - Claim is narrowed to HAM10000 dermoscopy only. No second-dataset
+#     generalisation claim.
+#   - ResNet-50 baseline and 2:4 structured sparsity are NOT run (pillar
+#     list below excludes them). MobileNetV2 is kept as an exploratory
+#     check, not as a generalisation argument.
+#   - One shared fine-tune; pruning / recovery / eval repeated across
+#     seeds via `experiment.share_finetune_across_seeds: true`.
+#   - Recovery sweep is narrow: 1 sparsity, 3 epoch points, 1 lr.
+#   - Non-uniform policy sweep trimmed to 2 entries (binned_3 + continuous_t1).
+#   - Edge latency benchmarks the same Mac the training ran on — the M-
+#     series chip is a legitimate edge target, so the numbers are
+#     reportable as-is.
+#
+# Launch:
+#   bash scripts/run_personal.sh
+# Or directly:
+#   python -m experiments.run_seeds --config configs/local_personal_8h.yaml
+
+dataset:
+  name: HAM10000
+  root: ./data/ham10000/
+  image_size: 224
+  train_split: 0.8
+  num_workers: 4
+  metadata_csv: ./data/ham10000/processed_metadata.csv
+  group_by_lesion: true
+  seed: 42
+  # If you have ISIC 2018 Task 1 masks staged here, W12 quantitative
+  # overlap will run; otherwise attention viz is qualitative only.
+  segmentation_mask_dir: ./data/ham10000/segmentation_masks/
+
+experiment:
+  seeds: [0, 1, 2]
+  seed: 0
+  # Fine-tune once on seed 0; seeds 1 and 2 reuse the checkpoint and
+  # calibration tensors. This is where the 8-hour budget is reclaimed.
+  share_finetune_across_seeds: true
+  # Pillars that run only on the first seed (MobileNetV2, activation
+  # stats + Paxton/X-Pruner, edge latency). Everything else runs per
+  # seed.
+  seed_zero_only_pillars: [7, 9, 11]
+  # Pillars included in the sweep. ResNet-50 (8) and structured
+  # sparsity (10) are intentionally absent.
+  pillars: [0, 1, 2, 3, 4, 5, 6, 7, 9, 11]
+
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+
+finetune:
+  epochs: 15             # 20 -> 15: small accuracy loss, meaningful wall-time cut
+  batch_size: 64         # MPS-safe; bump to 96 on a CUDA desktop
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.3, 0.5, 0.7]       # trimmed from 5 -> 3
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - cls_token
+    - pos_embed
+    - patch_embed.proj
+  cnn_criteria: [magnitude, wanda]
+  cnn_sparsities: [0.3, 0.5, 0.7]
+  quant_stack_criteria: [magnitude, wanda]
+  quant_stack_sparsities: [0.5]
+  release_criteria: [magnitude, wanda, taylor, random, skewness, xpruner]
+
+nonuniform:
+  target_avg_sparsity: 0.5
+  bin_counts: [3]
+  bins:
+    low_sensitivity: 0.7
+    medium_sensitivity: 0.5
+    high_sensitivity: 0.3
+  continuous_temperatures: [1.0]
+  obs_like: false
+  learnable: false
+
+quantization:
+  backend: fbgemm       # x86 builds; ONNX fallback handles Apple Silicon
+  calibration_size: 128
+  dtype: qint8
+
+distillation:
+  temperature: 4.0
+  alpha: 0.7
+  epochs: 10            # trimmed from 15-20
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 0.05
+
+recovery:
+  epochs: 20
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor]
+  sparsity: 0.5
+  cnn_enabled: false
+  sweep:
+    epochs: [5, 10, 20]
+    learning_rates: [1.0e-4]
+    sparsities: [0.5]
+
+evaluation:
+  batch_size: 128
+  latency_warmup_runs: 10
+  latency_timed_runs: 50
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+  attention_overlap_threshold: adaptive
+  edge:
+    warmup_seconds: 2.0
+    # Three runtimes on the same Mac — torch-CPU, torch-MPS, ONNX-CPU.
+    # This is your paper's edge-latency story. Add CoreML in the ONNX
+    # providers list if onnxruntime-silicon is installed.
+    targets:
+      - {name: torch_cpu, runtime: torch, device: cpu, num_threads: 4}
+      - {name: torch_mps, runtime: torch, device: mps, num_threads: 4}
+      - {name: onnx_cpu, runtime: onnx, providers: [CPUExecutionProvider], num_threads: 4}
+
+logging:
+  results_dir: ./results/logs_personal/
+  checkpoints_dir: ./results/checkpoints_personal/
+  figures_dir: ./results/figures_personal/

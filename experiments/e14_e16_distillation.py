@@ -3,33 +3,39 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from evaluation.metrics import CLASS_NAMES, evaluate_model
+from evaluation.metrics import CLASS_NAMES, dangerous_class_degradation_ratio, evaluate_model
 from experiments.common import build_dataloaders, collect_activation_norms, load_trained_model, model_alias
 from models.distillation import train_distillation
 from models.load_models import load_deit_model
 from pruning.masking import apply_masks, compute_global_masks
 from pruning.scoring import wanda_score
-from utils.config import get_device, load_config
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed
 from utils.io import append_csv_row, ensure_dir, save_masks
 from utils.seed import set_seed
 
 
-def _evaluate_and_log(log_path, variant, pruned, metrics):
-    append_csv_row(
-        log_path,
-        {
-            "variant": variant,
-            "pruned": "yes" if pruned else "no",
-            "balanced_accuracy": metrics["balanced_accuracy"],
-            "mel_sensitivity": metrics["per_class_sensitivity"]["mel"],
-            "bcc_sensitivity": metrics["per_class_sensitivity"]["bcc"],
-            "akiec_sensitivity": metrics["per_class_sensitivity"]["akiec"],
-            "nv_sensitivity": metrics["per_class_sensitivity"]["nv"],
-            "bkl_sensitivity": metrics["per_class_sensitivity"]["bkl"],
-            "df_sensitivity": metrics["per_class_sensitivity"]["df"],
-            "vasc_sensitivity": metrics["per_class_sensitivity"]["vasc"],
-        },
-    )
+def _evaluate_and_log(log_path, variant, pruned, metrics, *, seed: int, baseline_sensitivity=None):
+    row = {
+        "seed": seed,
+        "variant": variant,
+        "pruned": "yes" if pruned else "no",
+        "balanced_accuracy": metrics["balanced_accuracy"],
+        "macro_auroc": metrics.get("macro_auroc"),
+        "melanoma_auroc": metrics.get("melanoma_auroc"),
+        "ece_top_label": metrics.get("ece_top_label"),
+        "mel_sensitivity": metrics["per_class_sensitivity"]["mel"],
+        "bcc_sensitivity": metrics["per_class_sensitivity"]["bcc"],
+        "akiec_sensitivity": metrics["per_class_sensitivity"]["akiec"],
+        "nv_sensitivity": metrics["per_class_sensitivity"]["nv"],
+        "bkl_sensitivity": metrics["per_class_sensitivity"]["bkl"],
+        "df_sensitivity": metrics["per_class_sensitivity"]["df"],
+        "vasc_sensitivity": metrics["per_class_sensitivity"]["vasc"],
+    }
+    if pruned and baseline_sensitivity is not None:
+        row["dangerous_class_degradation_ratio"] = dangerous_class_degradation_ratio(
+            baseline_sensitivity, metrics["per_class_sensitivity"]
+        )
+    append_csv_row(log_path, row)
 
 
 def _prune_with_wanda(config, model, calibration_loader, device):
@@ -45,9 +51,12 @@ def _prune_with_wanda(config, model, calibration_loader, device):
     return masks
 
 
-def run(config_path: str) -> None:
+def run(config_path: str, seed_override: int | None = None) -> None:
     config = load_config(config_path)
-    set_seed(int(config["dataset"].get("seed", 42)))
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    seed = resolve_seed(config)
+    set_seed(seed)
     device = get_device()
     train_loader, val_loader, calibration_loader, class_weights = build_dataloaders(
         config,
@@ -99,24 +108,33 @@ def run(config_path: str) -> None:
 
     for variant_name, model in variants.items():
         dense_metrics = evaluate_model(model, val_loader, device, class_names=CLASS_NAMES)
-        _evaluate_and_log(log_path, variant_name, False, dense_metrics)
+        _evaluate_and_log(log_path, variant_name, False, dense_metrics, seed=seed)
+        baseline_sensitivity = dict(dense_metrics["per_class_sensitivity"])
 
         pruned_model = model
         masks = _prune_with_wanda(config, pruned_model, calibration_loader, device)
         save_masks(masks_dir / f"{variant_name}_wanda_50.pt", masks)
         pruned_metrics = evaluate_model(pruned_model, val_loader, device, class_names=CLASS_NAMES)
-        _evaluate_and_log(log_path, variant_name, True, pruned_metrics)
+        _evaluate_and_log(
+            log_path,
+            variant_name,
+            True,
+            pruned_metrics,
+            seed=seed,
+            baseline_sensitivity=baseline_sensitivity,
+        )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run distillation pre-treatment experiments.")
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config)
+    run(args.config, seed_override=args.seed)
 
 
 if __name__ == "__main__":

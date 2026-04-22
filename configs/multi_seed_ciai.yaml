@@ -1,0 +1,142 @@
+# CIAI / CSCC cluster config — 4 GPUs, 5 seeds, full Tier-1+2 sweep.
+#
+# Launch:
+#   torchrun --nproc_per_node=4 -m experiments.run_seeds \
+#       --config configs/multi_seed_ciai.yaml \
+#       --pillars 0 1 2 3 4 5 6 7 8 9
+#
+# Notes:
+#   - `experiment.seeds` is the authoritative list. `dataset.seed` is only
+#     used as a fallback when an individual script is launched without
+#     `--seed` and without the run_seeds.py driver.
+#   - DDP is auto-detected by utils/distributed.py when `torchrun` sets
+#     RANK/LOCAL_RANK/WORLD_SIZE; nothing in the config needs to change.
+#   - The batch sizes below target 4x A100-40GB. Reduce if you see OOM.
+
+dataset:
+  name: HAM10000
+  root: ./data/ham10000/
+  image_size: 224
+  train_split: 0.8
+  num_workers: 8
+  metadata_csv: ./data/ham10000/processed_metadata.csv
+  group_by_lesion: true
+  seed: 42
+  # Optional: directory holding ISIC/HAM10000 lesion segmentation masks,
+  # used by e_attention_viz to compute the quantitative W12 overlap.
+  segmentation_mask_dir: ./data/ham10000/segmentation_masks/
+
+experiment:
+  seeds: [0, 1, 2, 3, 4]
+  seed: 0
+
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+
+finetune:
+  epochs: 20
+  batch_size: 128           # per-process effective = 128 * 4 = 512 global
+  lr: 2.0e-4                # scaled with effective batch
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - cls_token
+    - pos_embed
+    - patch_embed.proj
+  cnn_criteria: [magnitude, wanda, taylor, random]
+  cnn_sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  structured_criteria: [magnitude, wanda, taylor]
+  quant_stack_criteria: [magnitude, wanda, taylor]
+  quant_stack_sparsities: [0.5, 0.7]
+  release_criteria: [magnitude, wanda, taylor, random, skewness, xpruner, sparsegpt_pseudo]
+
+nonuniform:
+  target_avg_sparsity: 0.5
+  bin_counts: [2, 3, 5]
+  bins:
+    low_sensitivity: 0.7
+    medium_sensitivity: 0.5
+    high_sensitivity: 0.3
+  continuous_temperatures: [0.5, 1.0, 2.0]
+  obs_like: true
+  learnable: true
+  learnable_steps: 300
+  learnable_lr: 0.05
+  learnable_beta: 10.0
+
+quantization:
+  backend: fbgemm
+  calibration_size: 128
+  dtype: qint8
+
+distillation:
+  temperature: 4.0
+  alpha: 0.7
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+
+recovery:
+  epochs: 10
+  batch_size: 128
+  lr: 1.0e-5
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor, skewness, xpruner, sparsegpt_pseudo]
+  sparsity: 0.5
+  cnn_enabled: true
+  sweep:
+    epochs: [1, 5, 10, 20]
+    learning_rates: [1.0e-5, 5.0e-5, 1.0e-4]
+    sparsities: [0.5, 0.7]
+
+evaluation:
+  batch_size: 256
+  latency_warmup_runs: 10
+  latency_timed_runs: 200
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+    - [sensitivity, 0.95]
+  attention_overlap_threshold: adaptive
+  edge:
+    warmup_seconds: 2.0
+    targets:
+      - {name: torch_cpu, runtime: torch, device: cpu, num_threads: 4}
+      - {name: onnx_cpu, runtime: onnx, providers: [CPUExecutionProvider], num_threads: 4}
+      - {name: tflite_cpu, runtime: tflite, num_threads: 4}
+
+logging:
+  results_dir: ./results/logs_ciai/
+  checkpoints_dir: ./results/checkpoints_ciai/
+  figures_dir: ./results/figures_ciai/

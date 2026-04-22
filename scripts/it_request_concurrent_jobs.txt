@@ -1,0 +1,27 @@
+Subject: Re: CSCC cluster access + GPU QoS increase request — long-partition access
+
+Hi,
+
+Thanks again for the 3–4 GPU allocation on ciai.mbzuai.ac.ae. I have
+two small follow-up asks ahead of a paper revision deadline.
+
+1) QoS access for the `long` partition.
+   I'd like to be added to the `gpu-12` association so I can submit
+   to `-p long -q gpu-12`. The `cscc-gpu-p` partition is currently
+   fully allocated and `scontrol show partition long` reports several
+   idle A100 nodes. My jobs fit inside gpu-12's 12-GPU / 72-h caps —
+   I'll be running at most two 4-GPU jobs, each ~6 h walltime.
+
+2) Concurrent-job allowance.
+   For a multi-seed reproducibility study I'd like to run two
+   independent 4-GPU DDP jobs in parallel (one per training seed).
+   Peak resource use would be 8 GPUs for ~6 hours, freed afterward.
+   Happy to schedule for any off-peak window the queue manager
+   prefers.
+
+Either ask alone unblocks me; the combination cuts the total run
+time to roughly 6 hours end-to-end.
+
+Thanks,
+Abdulla Alfalasi
+abdulla.alfalasi@mbzuai.ac.ae

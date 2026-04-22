@@ -5,22 +5,20 @@ from pathlib import Path
 
 from torch.utils.data import DataLoader
 
-from data.dataset import HAM10000Dataset, get_train_val_splits, get_transforms
+from data.dataset import HAM10000Dataset, get_transforms
 from evaluation.metrics import CLASS_NAMES, evaluate_model
+from experiments.common import build_splits, metadata_csv_path
 from models.load_models import load_deit_model
-from utils.config import get_device, load_config, should_pin_memory
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed, should_pin_memory
 from utils.io import append_csv_row, load_checkpoint_state
+from utils.seed import set_seed
 
 
 def _build_val_loader(config):
     dataset_cfg = config["dataset"]
     pin_memory = should_pin_memory()
-    metadata_csv = dataset_cfg.get("metadata_csv") or str(Path(dataset_cfg["root"]) / "processed_metadata.csv")
-    _, val_indices = get_train_val_splits(
-        metadata_csv,
-        train_ratio=float(dataset_cfg.get("train_split", 0.8)),
-        seed=int(dataset_cfg.get("seed", 42)),
-    )
+    metadata_csv = metadata_csv_path(config)
+    _, val_indices = build_splits(config)
     max_val_samples = dataset_cfg.get("max_val_samples")
     if max_val_samples is not None:
         val_indices = val_indices[: int(max_val_samples)]
@@ -43,8 +41,12 @@ def _build_val_loader(config):
     )
 
 
-def run(config_path: str, model_names: list[str] | None = None) -> None:
+def run(config_path: str, model_names: list[str] | None = None, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    seed = resolve_seed(config)
+    set_seed(seed)
     device = get_device()
     val_loader = _build_val_loader(config)
     model_names = model_names or [config["models"]["student"], config["models"]["teacher"]]
@@ -63,9 +65,13 @@ def run(config_path: str, model_names: list[str] | None = None) -> None:
         results = evaluate_model(model, val_loader, device, class_names=CLASS_NAMES)
 
         row = {
+            "seed": seed,
             "model": alias,
             "overall_accuracy": results["overall_accuracy"],
             "balanced_accuracy": results["balanced_accuracy"],
+            "macro_auroc": results.get("macro_auroc"),
+            "melanoma_auroc": results.get("melanoma_auroc"),
+            "ece_top_label": results.get("ece_top_label"),
             "mel_sensitivity": results["per_class_sensitivity"]["mel"],
             "bcc_sensitivity": results["per_class_sensitivity"]["bcc"],
             "akiec_sensitivity": results["per_class_sensitivity"]["akiec"],
@@ -81,12 +87,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate dense baseline checkpoints.")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--models", nargs="*", default=None)
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config, args.models)
+    run(args.config, args.models, seed_override=args.seed)
 
 
 if __name__ == "__main__":
