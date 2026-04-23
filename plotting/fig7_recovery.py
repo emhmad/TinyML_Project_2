@@ -78,11 +78,14 @@ def _plot_metric(
     for ax, model_name in zip(axes, models):
         model_df = frame[frame["model"] == model_name]
         baseline_row = baseline_frame.loc[baseline_frame["model"] == model_name]
-        dense_baseline = (
-            float(baseline_row[f"{metric}_mean"].iloc[0])
-            if f"{metric}_mean" in baseline_row.columns
-            else float(baseline_row[metric].iloc[0])
-        )
+        # baseline_eval uses `balanced_accuracy`, recovery_finetune uses `balanced_acc` —
+        # try both naming conventions so this figure works against either source CSV.
+        candidates = [f"{metric}_mean", metric, f"{metric.replace('balanced_acc','balanced_accuracy')}_mean", metric.replace("balanced_acc", "balanced_accuracy")]
+        dense_baseline = float("nan")
+        for col in candidates:
+            if col in baseline_row.columns:
+                dense_baseline = float(baseline_row[col].iloc[0])
+                break
 
         for idx, criterion in enumerate(criteria):
             criterion_df = model_df[model_df["criterion"] == criterion]

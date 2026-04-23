@@ -48,8 +48,8 @@ def run(config_path: str, pillars: list[int], seed_override: int | None = None) 
 
     if 1 in pillars:
         e4_pruning_matrix.run(config_path, seed_override=seed_override)
-        e5_perlayer_breakdown.run(config_path)
-        e6_diagnostic_safety.run(config_path)
+        e5_perlayer_breakdown.run(config_path, seed_override=seed_override)
+        e6_diagnostic_safety.run(config_path, seed_override=seed_override)
 
     if 2 in pillars:
         e7_e10_nonuniform.run(config_path, seed_override=seed_override)
@@ -64,7 +64,7 @@ def run(config_path: str, pillars: list[int], seed_override: int | None = None) 
         e_recovery_finetune.run(config_path, seed_override=seed_override)
 
     if 6 in pillars:
-        e_calibration_ablation.run(config_path)
+        e_calibration_ablation.run(config_path, seed_override=seed_override)
         e_attention_viz.run(config_path, seed_override=seed_override)
 
     if 7 in pillars:

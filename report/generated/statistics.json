@@ -1,0 +1,150 @@
+{
+  "per_model": {
+    "deit_small": {
+      "per_criterion_at_s0.5": {
+        "magnitude": {
+          "balanced_acc_mean": 0.7874859379796395,
+          "balanced_acc_std": 0.0652327993908652,
+          "mel_sensitivity_mean": 0.5888705173427395,
+          "mel_sensitivity_std": 0.0576748408339627,
+          "melanoma_auroc_mean": 0.8787984055136615,
+          "ece_top_label_mean": 0.0377122801387875,
+          "dcr_mean": 2.1482779785264894
+        },
+        "wanda": {
+          "balanced_acc_mean": 0.6059125565093705,
+          "balanced_acc_std": 0.0130609908243833,
+          "mel_sensitivity_mean": 0.5704548794826573,
+          "mel_sensitivity_std": 0.0201373041787314,
+          "melanoma_auroc_mean": 0.8449148576126516,
+          "ece_top_label_mean": 0.0968526199546323,
+          "dcr_mean": 0.7122790472682541
+        },
+        "taylor": {
+          "balanced_acc_mean": 0.7728491008333916,
+          "balanced_acc_std": 0.0680334618612031,
+          "mel_sensitivity_mean": 0.8699827307466196,
+          "mel_sensitivity_std": 0.0643809706086152,
+          "melanoma_auroc_mean": 0.9281669420240556,
+          "ece_top_label_mean": 0.0328489079948576,
+          "dcr_mean": 0.8021985149934708
+        },
+        "random": {
+          "balanced_acc_mean": 0.1375174972481274,
+          "balanced_acc_std": 0.0049444158472977,
+          "mel_sensitivity_mean": 0.0,
+          "mel_sensitivity_std": 0.0,
+          "melanoma_auroc_mean": 0.4430021249501581,
+          "ece_top_label_mean": 0.2045538407540622,
+          "dcr_mean": 1.0025129231278556
+        }
+      },
+      "dense": {
+        "balanced_acc_mean": 0.882063839508122,
+        "mel_sensitivity_mean": 0.897198339212228,
+        "melanoma_auroc_mean": 0.9590665499847132,
+        "ece_top_label_mean": 0.0305907552757157
+      }
+    },
+    "deit_tiny": {
+      "per_criterion_at_s0.5": {
+        "magnitude": {
+          "balanced_acc_mean": 0.7206137586731286,
+          "balanced_acc_std": 0.0765343296490193,
+          "mel_sensitivity_mean": 0.5465737066431511,
+          "mel_sensitivity_std": 0.0504943427243928,
+          "melanoma_auroc_mean": 0.899627851497593,
+          "ece_top_label_mean": 0.0465447127426574,
+          "dcr_mean": 2.175997623326049
+        },
+        "wanda": {
+          "balanced_acc_mean": 0.3363189519046434,
+          "balanced_acc_std": 0.0091524901185329,
+          "mel_sensitivity_mean": 0.9246141975308642,
+          "mel_sensitivity_std": 0.0256852128771522,
+          "melanoma_auroc_mean": 0.7880048531898016,
+          "ece_top_label_mean": 0.114295120785087,
+          "dcr_mean": 0.5663514280085659
+        },
+        "taylor": {
+          "balanced_acc_mean": 0.5676411948064245,
+          "balanced_acc_std": 0.0295918447825147,
+          "mel_sensitivity_mean": 0.8811985596707819,
+          "mel_sensitivity_std": 0.0266386581252441,
+          "melanoma_auroc_mean": 0.8797299322660111,
+          "ece_top_label_mean": 0.0462868310635497,
+          "dcr_mean": 0.7167262043498062
+        },
+        "random": {
+          "balanced_acc_mean": 0.1305650352755027,
+          "balanced_acc_std": 0.0106086177722175,
+          "mel_sensitivity_mean": 0.8351594650205761,
+          "mel_sensitivity_std": 0.15019426020478,
+          "melanoma_auroc_mean": 0.5354236546591706,
+          "ece_top_label_mean": 0.1040399616569289,
+          "dcr_mean": 0.7057409578457757
+        }
+      },
+      "dense": {
+        "balanced_acc_mean": 0.8763233546298435,
+        "mel_sensitivity_mean": 0.8372574955908288,
+        "melanoma_auroc_mean": 0.9490499832090604,
+        "ece_top_label_mean": 0.0332378614794615
+      }
+    }
+  },
+  "wanda_vs_magnitude_at_s0.5": {
+    "deit_small": {
+      "balanced_acc": {
+        "n_seeds": 3,
+        "mean_diff": 0.181573381470269,
+        "p_value": 0.0069571149735297,
+        "significant_0.05": true
+      },
+      "mel_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": 0.0184156378600823,
+        "p_value": 0.4631315012873236,
+        "significant_0.05": false
+      },
+      "bcc_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": 0.3806432748538012,
+        "p_value": 0.0015247253311139,
+        "significant_0.05": true
+      },
+      "akiec_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": -0.1333333333333333,
+        "p_value": 0.1245140875143529,
+        "significant_0.05": false
+      }
+    },
+    "deit_tiny": {
+      "balanced_acc": {
+        "n_seeds": 3,
+        "mean_diff": 0.3842948067684851,
+        "p_value": 0.0020757958082724,
+        "significant_0.05": true
+      },
+      "mel_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": -0.378040490887713,
+        "p_value": 0.0004936159254281,
+        "significant_0.05": true
+      },
+      "bcc_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": 0.2850584795321638,
+        "p_value": 0.0003081451165602,
+        "significant_0.05": true
+      },
+      "akiec_sensitivity": {
+        "n_seeds": 3,
+        "mean_diff": 0.55625,
+        "p_value": 0.0048582399688245,
+        "significant_0.05": true
+      }
+    }
+  }
+}

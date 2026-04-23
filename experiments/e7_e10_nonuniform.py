@@ -6,7 +6,12 @@ from pathlib import Path
 import torch
 
 from evaluation.metrics import CLASS_NAMES, dangerous_class_degradation_ratio, evaluate_model
-from experiments.common import build_dataloaders, load_trained_model, model_alias
+from experiments.common import (
+    build_dataloaders,
+    load_trained_model,
+    model_alias,
+    resolve_calibration_path,
+)
 from models.load_models import get_linear_layer_names
 from pruning.masking import apply_masks, compute_global_masks
 from pruning.learnable_sparsity import LearnableSparsityConfig, learn_sparsity_allocation
@@ -114,7 +119,8 @@ def run(config_path: str, seed_override: int | None = None) -> None:
     baseline_sensitivity = dict(baseline["per_class_sensitivity"])
 
     activation_norms = torch.load(
-        checkpoint_dir / "calibration" / f"{alias}_activation_norms.pt", map_location="cpu"
+        resolve_calibration_path(config, f"{alias}_activation_norms.pt"),
+        map_location="cpu",
     )
     target_layers, scores_mag, scores_wanda = _build_scores(
         model, activation_norms, config["pruning"]["exclude_layers"]

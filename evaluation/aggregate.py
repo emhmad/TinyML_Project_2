@@ -77,12 +77,23 @@ def _detect_seed_dirs(root: Path) -> list[Path]:
 
 
 def _load_experiment_csvs(seed_dirs: Iterable[Path], csv_name: str) -> pd.DataFrame:
+    """
+    Load `csv_name` from each seed dir, tolerate schema drift across
+    appends (experiments can add columns over time; older rows may be
+    missing them). Uses the python parser + `on_bad_lines='skip'` so a
+    mid-CSV row with extra/missing fields doesn't abort the aggregation.
+    """
     frames: list[pd.DataFrame] = []
     for seed_dir in seed_dirs:
         path = seed_dir / csv_name
         if not path.exists():
             continue
-        frame = pd.read_csv(path)
+        try:
+            frame = pd.read_csv(path, engine="python", on_bad_lines="skip")
+        except Exception as exc:
+            # Last-resort fallback: read as a blob, keep whatever rows pandas can recover.
+            print(f"[aggregate] warning: could not fully parse {path} ({exc}); skipping.")
+            continue
         try:
             seed = int(seed_dir.name.split("_", 1)[1])
         except (IndexError, ValueError):
@@ -95,7 +106,7 @@ def _load_experiment_csvs(seed_dirs: Iterable[Path], csv_name: str) -> pd.DataFr
             f"None of the seed directories contained {csv_name}. "
             "Check that experiments completed for this CSV."
         )
-    return pd.concat(frames, ignore_index=True)
+    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 def aggregate_csv(
@@ -213,6 +224,9 @@ def run(root: str | Path, output_dir: str | Path | None = None) -> None:
             aggregated = aggregate_csv(root, csv_name, group_cols)
             aggregated.to_csv(out / f"agg_{csv_name}", index=False)
         except FileNotFoundError:
+            continue
+        except Exception as exc:
+            print(f"[aggregate] warning: failed to aggregate {csv_name}: {exc}")
             continue
 
     try:

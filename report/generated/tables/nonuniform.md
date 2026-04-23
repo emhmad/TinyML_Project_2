@@ -1,0 +1,12 @@
+| Model      | Criterion   | Policy         | Balanced Acc   | Mel Sens      | Mel AUROC     | DCR         |   n |
+|:-----------|:------------|:---------------|:---------------|:--------------|:--------------|:------------|----:|
+| deit_small | Magnitude   | binned_default | 0.681 ± 0.091  | 0.453 ± 0.188 | 0.833 ± 0.070 | 1.13 ± 0.10 |   3 |
+| deit_small | Magnitude   | binned_k3      | 0.681 ± 0.091  | 0.453 ± 0.188 | 0.833 ± 0.070 | 1.13 ± 0.10 |   3 |
+| deit_small | Magnitude   | continuous_t1  | 0.547 ± 0.284  | 0.258 ± 0.202 | 0.769 ± 0.120 | 3.12 ± 3.61 |   3 |
+| deit_small | Magnitude   | dense          | 0.872 ± 0.080  | 0.889 ± 0.090 | 0.956 ± 0.030 | 0.00 ± 0.00 |   3 |
+| deit_small | Magnitude   | uniform        | 0.775 ± 0.074  | 0.585 ± 0.070 | 0.877 ± 0.029 | 2.11 ± 0.25 |   3 |
+| deit_small | Wanda       | binned_default | 0.776 ± 0.064  | 0.685 ± 0.110 | 0.906 ± 0.020 | 1.49 ± 0.66 |   3 |
+| deit_small | Wanda       | binned_k3      | 0.776 ± 0.064  | 0.685 ± 0.110 | 0.906 ± 0.020 | 1.49 ± 0.66 |   3 |
+| deit_small | Wanda       | continuous_t1  | 0.660 ± 0.159  | 0.535 ± 0.295 | 0.838 ± 0.115 | 5.78 ± 8.54 |   3 |
+| deit_small | Wanda       | dense          | 0.872 ± 0.080  | 0.889 ± 0.090 | 0.956 ± 0.030 | 0.00 ± 0.00 |   3 |
+| deit_small | Wanda       | uniform        | 0.602 ± 0.013  | 0.566 ± 0.022 | 0.845 ± 0.016 | 0.72 ± 0.02 |   3 |

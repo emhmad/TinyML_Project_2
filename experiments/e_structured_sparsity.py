@@ -25,7 +25,7 @@ from evaluation.metrics import (
     evaluate_model,
 )
 from evaluation.model_size import get_model_size_kb
-from experiments.common import build_dataloaders, model_alias
+from experiments.common import build_dataloaders, model_alias, resolve_calibration_path, resolve_checkpoint_path
 from experiments.e4_pruning_matrix import _score_layers
 from models.load_models import get_linear_layer_names, load_deit_model
 from pruning.masking import apply_masks, get_sparsity_stats
@@ -104,7 +104,6 @@ def run(
     checkpoint_dir = Path(config["logging"]["checkpoints_dir"])
     results_dir = ensure_dir(config["logging"]["results_dir"])
     masks_dir = ensure_dir(checkpoint_dir / "masks" / "structured")
-    calibration_dir = checkpoint_dir / "calibration"
     log_path = results_dir / "structured_sparsity.csv"
 
     model_names = model_names or [config["models"]["student"], config["models"]["teacher"]]
@@ -118,12 +117,21 @@ def run(
             num_classes=int(config["models"].get("num_classes", 7)),
             pretrained=False,
         ).to(device)
-        state_dict = load_checkpoint_state(checkpoint_dir / f"{alias}_ham10000.pth", map_location=device)
+        state_dict = load_checkpoint_state(
+            resolve_checkpoint_path(config, f"{alias}_ham10000.pth"),
+            map_location=device,
+        )
         base_model.load_state_dict(state_dict)
         target_layers = get_linear_layer_names(base_model, exclude_keywords=config["pruning"]["exclude_layers"])
 
-        activation_norms = torch.load(calibration_dir / f"{alias}_activation_norms.pt", map_location="cpu")
-        gradients = torch.load(calibration_dir / f"{alias}_gradients.pt", map_location="cpu")
+        activation_norms = torch.load(
+            resolve_calibration_path(config, f"{alias}_activation_norms.pt"),
+            map_location="cpu",
+        )
+        gradients = torch.load(
+            resolve_calibration_path(config, f"{alias}_gradients.pt"),
+            map_location="cpu",
+        )
 
         baseline = evaluate_model(base_model, val_loader, device, class_names=CLASS_NAMES)
         baseline_sensitivity = dict(baseline["per_class_sensitivity"])

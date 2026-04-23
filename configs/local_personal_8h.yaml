@@ -104,7 +104,7 @@ nonuniform:
   learnable: false
 
 quantization:
-  backend: fbgemm       # x86 builds; ONNX fallback handles Apple Silicon
+  backend: qnnpack      # Apple Silicon / ARM; auto-falls-through if not supported
   calibration_size: 128
   dtype: qint8
 

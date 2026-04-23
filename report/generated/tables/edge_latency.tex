@@ -1,0 +1,14 @@
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llllllll}
+\toprule
+Model & Criterion & Sparsity & Target & Mean (ms) & p95 (ms) & p99 (ms) & n \\
+\midrule
+deit\_tiny & Dense & 0\% & torch\_cpu & 11.61 & 12.93 & 13.84 & 1 \\
+deit\_tiny & Dense & 0\% & torch\_mps & 2.57 & 2.64 & 2.65 & 1 \\
+\bottomrule
+\end{tabular}
+\caption{On-device latency on the Apple M-series MacBook used as the edge target.}
+\label{tab:edge_latency}
+\end{table}

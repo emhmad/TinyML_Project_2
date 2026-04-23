@@ -7,19 +7,26 @@ import torch
 from tqdm import tqdm
 
 from evaluation.metrics import CLASS_NAMES, evaluate_model
-from experiments.common import build_dataloaders, load_trained_model, model_alias
+from experiments.common import (
+    build_dataloaders,
+    load_trained_model,
+    model_alias,
+    resolve_calibration_path,
+)
 from pruning.layer_groups import get_layer_groups, prune_only_group
 from pruning.scoring import magnitude_score, wanda_score
-from utils.config import get_device, load_config
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed
 from utils.io import append_csv_row
+from utils.seed import set_seed
 
 
-def run(config_path: str) -> None:
+def run(config_path: str, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    set_seed(resolve_seed(config))
     device = get_device()
     _, val_loader, _, _ = build_dataloaders(config, include_train=False)
-    checkpoint_dir = Path(config["logging"]["checkpoints_dir"])
-    calibration_dir = checkpoint_dir / "calibration"
     log_path = Path(config["logging"]["results_dir"]) / "perlayer_breakdown.csv"
 
     model_name = config["models"]["teacher"]
@@ -32,7 +39,10 @@ def run(config_path: str) -> None:
         class_names=CLASS_NAMES,
         progress_desc=f"{alias} per-layer baseline",
     )
-    activation_norms = torch.load(calibration_dir / f"{alias}_activation_norms.pt", map_location="cpu")
+    activation_norms = torch.load(
+        resolve_calibration_path(config, f"{alias}_activation_norms.pt"),
+        map_location="cpu",
+    )
     layer_groups = get_layer_groups(base_model)
 
     criteria = config.get("smoke", {}).get("e5_criteria", ["wanda", "magnitude"])
@@ -86,12 +96,13 @@ def run(config_path: str) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run per-layer-type pruning breakdown.")
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config)
+    run(args.config, seed_override=args.seed)
 
 
 if __name__ == "__main__":

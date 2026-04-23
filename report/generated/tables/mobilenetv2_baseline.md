@@ -1,0 +1,9 @@
+| Model       | Criterion   | Sparsity   |   Balanced Acc |   Mel Sens |   Macro AUROC | DCR   |   n |
+|:------------|:------------|:-----------|---------------:|-----------:|--------------:|:------|----:|
+| mobilenetv2 | Magnitude   | 30%        |          0.722 |      0.604 |         0.95  | 0.47  |   1 |
+| mobilenetv2 | Magnitude   | 50%        |          0.251 |      0.071 |         0.872 | 1.94  |   1 |
+| mobilenetv2 | Magnitude   | 70%        |          0.143 |      0     |         0.573 | 1.37  |   1 |
+| mobilenetv2 | Wanda       | 30%        |          0.166 |      0.004 |         0.835 | 1.48  |   1 |
+| mobilenetv2 | Wanda       | 50%        |          0.143 |      0     |         0.532 | 1.37  |   1 |
+| mobilenetv2 | Wanda       | 70%        |          0.143 |      1     |         0.573 | 0.51  |   1 |
+| mobilenetv2 | none        | 0%         |          0.766 |      0.633 |         0.953 | —     |   1 |

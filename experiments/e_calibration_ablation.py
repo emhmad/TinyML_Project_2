@@ -13,14 +13,18 @@ from experiments.common import build_splits, collect_activation_norms, load_trai
 from models.load_models import get_linear_layer_names
 from pruning.masking import apply_masks, compute_global_masks
 from pruning.scoring import wanda_score
-from utils.config import get_device, load_config, should_pin_memory
+from utils.config import apply_seed_to_paths, get_device, load_config, resolve_seed, should_pin_memory
 from utils.io import ensure_dir
+from utils.seed import set_seed
 
 CALIBRATION_SIZES = [16, 32, 64, 128, 256, 512]
 
 
-def run(config_path: str) -> None:
+def run(config_path: str, seed_override: int | None = None) -> None:
     config = load_config(config_path)
+    if seed_override is not None:
+        config = apply_seed_to_paths(config, int(seed_override))
+    set_seed(resolve_seed(config))
     device = get_device()
     dataset_cfg = config["dataset"]
     metadata_csv = metadata_csv_path(config)
@@ -126,12 +130,13 @@ def run(config_path: str) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Wanda calibration-size ablation.")
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run(args.config)
+    run(args.config, seed_override=args.seed)
 
 
 if __name__ == "__main__":

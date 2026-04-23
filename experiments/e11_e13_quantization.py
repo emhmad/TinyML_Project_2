@@ -111,7 +111,7 @@ def run(config_path: str, seed_override: int | None = None) -> None:
         ),
     )
 
-    quant_only = quantize_model_dynamic(dense_model)
+    quant_only = quantize_model_dynamic(dense_model, backend=config.get("quantization", {}).get("backend"))
     quant_only_metrics = _cpu_eval(quant_only, val_loader)
     append_csv_row(
         log_path,
@@ -157,7 +157,7 @@ def run(config_path: str, seed_override: int | None = None) -> None:
                 ),
             )
 
-            stacked = quantize_model_dynamic(pruned)
+            stacked = quantize_model_dynamic(pruned, backend=config.get("quantization", {}).get("backend"))
             stacked_metrics = _cpu_eval(stacked, val_loader)
             append_csv_row(
                 log_path,
