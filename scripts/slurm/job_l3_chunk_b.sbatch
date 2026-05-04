@@ -5,6 +5,9 @@
 # and was previously dropped for compute reasons; this chunk brings it
 # back at n=10. Wall budget: ~16h on 4x A100.
 #
+# No dependency on chunk A — different architecture, different result
+# dirs. The orchestrator submits A and B concurrently (Tier B speedup).
+#
 #SBATCH --job-name=tinyml_l3_b_r50
 #SBATCH --partition=cscc-gpu-p
 #SBATCH --qos=cscc-gpu-qos

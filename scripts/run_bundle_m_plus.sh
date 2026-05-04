@@ -9,11 +9,17 @@
 #     S0 (n=10 sweep) ────────────── ┬──→ L4 (attention IoU)
 #                                    └──→ P1 (mechanism: P1.1 + P1.3)
 #
-#     L2A (seeds 0..2) ──→ L2B (seeds 3..5) ──→ L2C (seeds 6..9)
-#     L3A (MobileNetV2) ─→ L3B (ResNet-50)
+#                          ┌──→ L2B (seeds 3..5)
+#     L2A (seeds 0..2) ────┤
+#                          └──→ L2C (seeds 6..9)
 #
-# (L2A/B/C and L3A/B are chained via afterok to dodge PreemptMode=REQUEUE
-#  on long jobs.)
+#     L3A (MobileNetV2)  in parallel with  L3B (ResNet-50)
+#
+# Tier A+B parallelisation: L2 chunks B and C run concurrently after A
+# (both reuse seed-0 ckpt, no data dep between them); L3A and L3B are
+# fully independent (different archs, different result dirs) and run
+# in parallel from the start. Each chunk keeps --requeue so SLURM
+# auto-resubmits after preemption.
 #
 # Each `sbatch` is submitted with `--parsable` to capture its job id
 # and chain the dependent jobs via `--dependency=afterok:<id>`.
@@ -54,15 +60,15 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_ROOT}"
 
 _submit() {
-  local script="$1"
-  shift
-  local extra=("$@")
+  # Pass any sbatch flags + the script path as positional args.
+  # In dry-run mode the trace goes to stderr so the captured stdout
+  # stays a single clean job id (or 0 placeholder).
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    echo "[dry-run] sbatch ${extra[*]} ${script}"
+    echo "[dry-run] sbatch $*" >&2
     echo "0"
     return
   fi
-  sbatch --parsable "${extra[@]}" "${script}"
+  sbatch --parsable "$@"
 }
 
 echo "[bundle_m_plus] repo=${REPO_ROOT}"
@@ -96,12 +102,12 @@ S0_JOB=$(_submit scripts/slurm/job_s0_seeds_3to9.sbatch)
 echo "[bundle_m_plus]   S0 job id: ${S0_JOB}"
 
 # ------------------------------------------------------------------
-# L2 — ISIC 2019 retrained sweep, split into 3 chained chunks to dodge
-# preemption. Each chunk is short enough that a requeue costs at most
-# ~16h, vs ~48h for the original mega-job.
-#   chunk_a: seeds {0, 1, 2}  — runs the dense fine-tune for seed 0
-#   chunk_b: seeds {3, 4, 5}  — depends on chunk_a (needs seed-0 ckpt)
-#   chunk_c: seeds {6, 7, 8, 9} — depends on chunk_b
+# L2 — ISIC 2019 retrained sweep. Tier A parallelisation:
+#   chunk_a: seeds {0, 1, 2}     — runs the dense fine-tune for seed 0
+#   chunk_b: seeds {3, 4, 5}     — depends on chunk_a (needs seed-0 ckpt)
+#   chunk_c: seeds {6, 7, 8, 9}  — depends on chunk_a (parallel with chunk_b)
+# B and C only need chunk_a's seed-0 dense checkpoint; they have no
+# data dependency on each other, so they run concurrently.
 # ------------------------------------------------------------------
 if [[ "${SKIP_L2}" -eq 0 ]]; then
   if [[ ! -f data/isic2019/processed_metadata.csv ]]; then
@@ -114,42 +120,33 @@ if [[ "${SKIP_L2}" -eq 0 ]]; then
     L2A_JOB=$(_submit scripts/slurm/job_l2_chunk_a.sbatch)
     echo "[bundle_m_plus]   L2A job id: ${L2A_JOB}"
 
-    L2B_DEP=()
+    L2BC_DEP=""
     if [[ "${DRY_RUN}" -eq 0 ]]; then
-      L2B_DEP=(--dependency=afterok:"${L2A_JOB}")
+      L2BC_DEP="--dependency=afterok:${L2A_JOB}"
     fi
     echo "[bundle_m_plus] L2: submitting ISIC 2019 chunk B (seeds 3,4,5; afterok L2A)"
-    L2B_JOB=$(_submit scripts/slurm/job_l2_chunk_b.sbatch "${L2B_DEP[@]}")
+    L2B_JOB=$(_submit ${L2BC_DEP} scripts/slurm/job_l2_chunk_b.sbatch)
     echo "[bundle_m_plus]   L2B job id: ${L2B_JOB}"
 
-    L2C_DEP=()
-    if [[ "${DRY_RUN}" -eq 0 ]]; then
-      L2C_DEP=(--dependency=afterok:"${L2B_JOB}")
-    fi
-    echo "[bundle_m_plus] L2: submitting ISIC 2019 chunk C (seeds 6,7,8,9; afterok L2B)"
-    L2C_JOB=$(_submit scripts/slurm/job_l2_chunk_c.sbatch "${L2C_DEP[@]}")
+    echo "[bundle_m_plus] L2: submitting ISIC 2019 chunk C (seeds 6,7,8,9; afterok L2A — parallel with L2B)"
+    L2C_JOB=$(_submit ${L2BC_DEP} scripts/slurm/job_l2_chunk_c.sbatch)
     echo "[bundle_m_plus]   L2C job id: ${L2C_JOB}"
   fi
 fi
 
 # ------------------------------------------------------------------
-# L3 — CNN baselines, split into 2 chained chunks by architecture.
-#   chunk_a: pillar 7 (MobileNetV2)
-#   chunk_b: pillar 8 (ResNet-50) — depends on chunk_a only for resource
-#                                   serialisation; technically independent
-#                                   since separate checkpoints/results dirs.
+# L3 — CNN baselines. Tier B parallelisation: chunks A and B target
+# different architectures (MobileNetV2 vs ResNet-50), write to
+# different checkpoints/results dirs, and share no state — submit
+# them concurrently from the start.
 # ------------------------------------------------------------------
 if [[ "${SKIP_L3}" -eq 0 ]]; then
   echo "[bundle_m_plus] L3: submitting MobileNetV2 chunk A"
   L3A_JOB=$(_submit scripts/slurm/job_l3_chunk_a.sbatch)
   echo "[bundle_m_plus]   L3A job id: ${L3A_JOB}"
 
-  L3B_DEP=()
-  if [[ "${DRY_RUN}" -eq 0 ]]; then
-    L3B_DEP=(--dependency=afterok:"${L3A_JOB}")
-  fi
-  echo "[bundle_m_plus] L3: submitting ResNet-50 chunk B (afterok L3A)"
-  L3B_JOB=$(_submit scripts/slurm/job_l3_chunk_b.sbatch "${L3B_DEP[@]}")
+  echo "[bundle_m_plus] L3: submitting ResNet-50 chunk B (parallel with L3A)"
+  L3B_JOB=$(_submit scripts/slurm/job_l3_chunk_b.sbatch)
   echo "[bundle_m_plus]   L3B job id: ${L3B_JOB}"
 fi
 
@@ -166,11 +163,11 @@ if [[ "${SKIP_L4}" -eq 0 ]]; then
     SKIP_L4=1
   else
     echo "[bundle_m_plus] L4: submitting attention IoU (depends on S0=${S0_JOB})"
-    L4_DEP=()
+    L4_DEP=""
     if [[ "${DRY_RUN}" -eq 0 ]]; then
-      L4_DEP=(--dependency=afterok:"${S0_JOB}")
+      L4_DEP="--dependency=afterok:${S0_JOB}"
     fi
-    L4_JOB=$(_submit scripts/slurm/job_l4_attention_iou.sbatch "${L4_DEP[@]}")
+    L4_JOB=$(_submit ${L4_DEP} scripts/slurm/job_l4_attention_iou.sbatch)
     echo "[bundle_m_plus]   L4 job id: ${L4_JOB}"
   fi
 fi
@@ -180,11 +177,11 @@ fi
 # ------------------------------------------------------------------
 if [[ "${SKIP_P1}" -eq 0 ]]; then
   echo "[bundle_m_plus] P1: submitting mechanism probes (P1.1 + P1.3) (depends on S0=${S0_JOB})"
-  P1_DEP=()
+  P1_DEP=""
   if [[ "${DRY_RUN}" -eq 0 ]]; then
-    P1_DEP=(--dependency=afterok:"${S0_JOB}")
+    P1_DEP="--dependency=afterok:${S0_JOB}"
   fi
-  P1_JOB=$(_submit scripts/slurm/job_p1_mechanism.sbatch "${P1_DEP[@]}")
+  P1_JOB=$(_submit ${P1_DEP} scripts/slurm/job_p1_mechanism.sbatch)
   echo "[bundle_m_plus]   P1 job id: ${P1_JOB}"
 fi
 
