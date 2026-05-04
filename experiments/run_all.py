@@ -9,6 +9,8 @@ from experiments import (
     e_calibration_ablation,
     e_edge_latency,
     e_mobilenet_baseline,
+    e_perclass_gradient_flow,
+    e_perhead_activation,
     e_recovery_finetune,
     e_resnet50_baseline,
     e_structured_sparsity,
@@ -40,6 +42,8 @@ def run(config_path: str, pillars: list[int], seed_override: int | None = None) 
       9  activation statistics + Paxton/X-Pruner baselines           (W4 + W6)
       10 2:4 / N:M structured sparsity                               (W8)
       11 edge-target latency sweep                                   (W9)
+      12 mechanism probes: per-class gradient flow + per-head        (P1.1, P1.3)
+         class-conditional activation
     """
     if 0 in pillars:
         e1_finetune.run(config_path, seed_override=seed_override)
@@ -82,6 +86,10 @@ def run(config_path: str, pillars: list[int], seed_override: int | None = None) 
 
     if 11 in pillars:
         e_edge_latency.run(config_path, seed_override=seed_override)
+
+    if 12 in pillars:
+        e_perclass_gradient_flow.run(config_path, seed_override=seed_override)
+        e_perhead_activation.run(config_path, seed_override=seed_override)
 
 
 def parse_args() -> argparse.Namespace:

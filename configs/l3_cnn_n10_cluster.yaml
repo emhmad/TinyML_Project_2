@@ -1,0 +1,97 @@
+# Bundle M++ L3-full — MobileNetV2 + ResNet-50 to n=10.
+#
+# MobileNetV2 was previously seed-0-only; this config bumps it to the same
+# n=10 grid as the ViT sweep and re-enables the dropped ResNet-50 baseline.
+# Only CNN pillars (7, 8) are activated to avoid duplicating the DeiT work
+# already done in S0.
+#
+# Wall-time: ~1–1.5 days on 4x A100 for both architectures combined.
+
+dataset:
+  name: HAM10000
+  root: ./data/ham10000/
+  image_size: 224
+  train_split: 0.8
+  num_workers: 8
+  metadata_csv: ./data/ham10000/processed_metadata.csv
+  group_by_lesion: true
+  seed: 42
+
+experiment:
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  seed: 0
+  share_finetune_across_seeds: false  # CNN baselines have their own dense fine-tunes
+  pillars: [7, 8]   # MobileNetV2 + ResNet-50
+
+# Models block kept for reference; pillars 7/8 use their own internal
+# backbone definitions (timm mobilenetv2_100 / resnet50).
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+  cnn:
+    mobilenetv2: mobilenetv2_100
+    resnet50: resnet50
+
+finetune:
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - fc
+    - classifier
+  cnn_criteria: [magnitude, wanda, taylor, random]
+  cnn_sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  release_criteria: [magnitude, wanda, taylor, random]
+
+recovery:
+  epochs: 10
+  batch_size: 128
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor]
+  sparsity: 0.5
+  cnn_enabled: true
+  sweep:
+    epochs: [5, 10, 20]
+    learning_rates: [1.0e-4, 5.0e-4]
+    sparsities: [0.5, 0.7]
+
+evaluation:
+  batch_size: 256
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+
+logging:
+  results_dir: ./results/logs_l3_cnn_n10/
+  checkpoints_dir: ./results/checkpoints_l3_cnn_n10/
+  figures_dir: ./results/figures_l3_cnn_n10/

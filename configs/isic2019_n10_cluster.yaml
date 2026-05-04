@@ -1,0 +1,117 @@
+# Bundle M++ L2-full — ISIC 2019 retrained sweep at n=10.
+#
+# Same models, criteria, sparsities, and seeds as the primary HAM10000
+# n=10 config — only the dataset paths change. Class label space is
+# remapped to HAM10000's 7-class indices by scripts.build_isic2019_metadata
+# (SCC and UNK are dropped).
+#
+# Prerequisites:
+#   1. ISIC 2019 raw dataset extracted under data/isic2019/.
+#   2. python -m scripts.build_isic2019_metadata \
+#         --source-dir data/isic2019 --output-dir data/isic2019
+#   3. SLURM job: scripts/slurm/job_l2_isic2019_n10.sbatch
+#
+# Wall-time: ~1.5–2 days on 4x A100 for the full retrained sweep.
+
+dataset:
+  name: ISIC2019
+  root: ./data/isic2019/
+  image_size: 224
+  train_split: 0.8
+  num_workers: 8
+  metadata_csv: ./data/isic2019/processed_metadata.csv
+  group_by_lesion: true
+  seed: 42
+
+experiment:
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  seed: 0
+  share_finetune_across_seeds: true
+  seed_zero_only_pillars: [9]
+  # No L4 (mask overlap) on ISIC 2019 since seg masks are HAM-specific.
+  # No structured-sparsity / latency on the second dataset (already done
+  # on HAM10000 in S0).
+  pillars: [0, 1, 2, 4, 5, 9]
+
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+
+finetune:
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - cls_token
+    - pos_embed
+    - patch_embed.proj
+  release_criteria: [magnitude, wanda, taylor, random, skewness, xpruner, sparsegpt_pseudo]
+
+quantization:
+  backend: fbgemm
+  calibration_size: 128
+  dtype: qint8
+
+distillation:
+  temperature: 4.0
+  alpha: 0.7
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+
+recovery:
+  epochs: 10
+  batch_size: 128
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor, skewness, xpruner, sparsegpt_pseudo]
+  sparsity: 0.5
+  cnn_enabled: false
+  sweep:
+    epochs: [5, 10, 20]
+    learning_rates: [1.0e-4, 5.0e-4]
+    sparsities: [0.5, 0.7]
+
+evaluation:
+  batch_size: 256
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+    - [sensitivity, 0.95]
+
+logging:
+  results_dir: ./results/logs_isic2019_n10/
+  checkpoints_dir: ./results/checkpoints_isic2019_n10/
+  figures_dir: ./results/figures_isic2019_n10/

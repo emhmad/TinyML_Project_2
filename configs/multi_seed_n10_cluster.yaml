@@ -1,0 +1,145 @@
+# Bundle M++ S0 — n=10 pruning matrix on CSCC cluster.
+#
+# Extends configs/multi_seed_ciai.yaml to seeds 0..9. Two ViTs (Tiny + Small),
+# full release_criteria sweep, all sparsities. Drives the prerequisite for
+# every downstream M++ analysis (P1.1, P1.3, L4, etc.).
+#
+# Launch via SLURM (job_s0_seeds_3to9.sbatch). Existing seeds 0..2 are
+# preserved; the driver only runs seeds 3..9 by default.
+#
+# Notes:
+#   * `share_finetune_across_seeds: true` keeps the dense fine-tune
+#     one-shot under seed 0 and reuses it for all later seeds. This is
+#     why adding 7 seeds is cheap (only the pruning-evaluation cost).
+#   * `experiment.seed_zero_only_pillars` ensures latency / structured
+#     sparsity / activation-stats only run once.
+
+dataset:
+  name: HAM10000
+  root: ./data/ham10000/
+  image_size: 224
+  train_split: 0.8
+  num_workers: 8
+  metadata_csv: ./data/ham10000/processed_metadata.csv
+  group_by_lesion: true
+  seed: 42
+  segmentation_mask_dir: ./data/ham10000/segmentation_masks/
+
+experiment:
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  seed: 0
+  share_finetune_across_seeds: true
+  seed_zero_only_pillars: [9, 10, 11]
+  pillars: [0, 1, 2, 3, 4, 5, 6, 9]
+
+models:
+  teacher: deit_small_patch16_224
+  student: deit_tiny_patch16_224
+  num_classes: 7
+  pretrained: true
+
+finetune:
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  warmup_epochs: 2
+  use_weighted_loss: true
+
+augmentation:
+  resize_size: 256
+  random_crop: 224
+  horizontal_flip: true
+  vertical_flip: true
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+pruning:
+  criteria: [magnitude, wanda, taylor, random]
+  sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  calibration_size: 128
+  exclude_layers:
+    - head
+    - cls_token
+    - pos_embed
+    - patch_embed.proj
+  cnn_criteria: [magnitude, wanda, taylor, random]
+  cnn_sparsities: [0.2, 0.4, 0.5, 0.6, 0.7]
+  structured_criteria: [magnitude, wanda, taylor]
+  quant_stack_criteria: [magnitude, wanda, taylor]
+  quant_stack_sparsities: [0.5, 0.7]
+  release_criteria: [magnitude, wanda, taylor, random, skewness, xpruner, sparsegpt_pseudo]
+
+nonuniform:
+  target_avg_sparsity: 0.5
+  bin_counts: [2, 3, 5]
+  bins:
+    low_sensitivity: 0.7
+    medium_sensitivity: 0.5
+    high_sensitivity: 0.3
+  continuous_temperatures: [0.5, 1.0, 2.0]
+  obs_like: true
+  learnable: true
+  learnable_steps: 300
+  learnable_lr: 0.05
+  learnable_beta: 10.0
+
+quantization:
+  backend: fbgemm
+  calibration_size: 128
+  dtype: qint8
+
+distillation:
+  temperature: 4.0
+  alpha: 0.7
+  epochs: 20
+  batch_size: 128
+  lr: 2.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+
+# Recovery LR raised to 1e-4 (was 1e-5) so future runs don't hit the no-op
+# behaviour P0.1 was diagnosing. Keep epochs sweep for ablation.
+recovery:
+  epochs: 10
+  batch_size: 128
+  lr: 1.0e-4
+  weight_decay: 0.05
+  optimizer: adamw
+  scheduler: cosine
+  criteria: [magnitude, wanda, taylor, skewness, xpruner, sparsegpt_pseudo]
+  sparsity: 0.5
+  cnn_enabled: true
+  sweep:
+    epochs: [5, 10, 20]
+    learning_rates: [1.0e-4, 5.0e-4, 1.0e-3]
+    sparsities: [0.5, 0.7]
+
+evaluation:
+  batch_size: 256
+  latency_warmup_runs: 10
+  latency_timed_runs: 200
+  operating_points:
+    - [sensitivity, 0.9]
+    - [specificity, 0.9]
+    - [sensitivity, 0.95]
+  attention_overlap_threshold: adaptive
+  edge:
+    warmup_seconds: 2.0
+    targets:
+      - {name: torch_cpu, runtime: torch, device: cpu, num_threads: 4}
+      - {name: onnx_cpu, runtime: onnx, providers: [CPUExecutionProvider], num_threads: 4}
+
+logging:
+  results_dir: ./results/logs_n10/
+  checkpoints_dir: ./results/checkpoints_n10/
+  figures_dir: ./results/figures_n10/
