@@ -59,6 +59,12 @@ done
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# SLURM opens the --output / --error files BEFORE the script body runs,
+# so the `mkdir -p` inside each sbatch arrives too late. Pre-create
+# results/slurm_logs/ here so jobs can never fail silently for this
+# reason again.
+mkdir -p results/slurm_logs
+
 _submit() {
   # Pass any sbatch flags + the script path as positional args.
   # In dry-run mode the trace goes to stderr so the captured stdout
