@@ -34,7 +34,19 @@ fi
 CONDA_BASE="$(conda info --base)"
 # shellcheck disable=SC1091
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate "${ENV_NAME:-tinyml-cancer-forget}"
+conda activate "${ENV_NAME:-tinyml-cancer-forget}" 2>/dev/null || true
+
+# Defensive: ensure env's bin is on PATH even if conda activate silently
+# fails to update it (observed on CSCC compute nodes when the env was
+# created by mamba/micromamba but conda is the system anaconda).
+ENV_TARGET="${ENV_NAME:-tinyml-cancer-forget}"
+if [[ -d "$ENV_TARGET" ]]; then
+  ENV_DIR="$ENV_TARGET"
+else
+  ENV_DIR="$HOME/.local/share/mamba/envs/$ENV_TARGET"
+fi
+export PATH="$ENV_DIR/bin:$PATH"
+echo "[env] ENV_DIR=$ENV_DIR  python=$(which python)"
 
 export NPROC=4
 export CONFIG_PATH=configs/l3_cnn_n10_cluster.yaml
