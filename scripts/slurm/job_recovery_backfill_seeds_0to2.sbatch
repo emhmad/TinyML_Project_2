@@ -73,18 +73,22 @@ export PYTHONUNBUFFERED=1
 echo "[recovery_backfill] config=${CONFIG_PATH}  seeds=0,1,2  pillar=5  GPUs=${NPROC}"
 nvidia-smi || true
 
-# Preflight — make sure pillars 0..4 outputs are present (linked from
-# results/checkpoints_personal/) and the broken recovery files were
-# cleaned up.
+# Preflight — make sure the seed-0 dense fine-tune is present.
+# With share_finetune_across_seeds=true, only seed 0 has its own
+# deit_small_ham10000.pth; seeds 1 and 2 reuse it via the share-finetune
+# fallback in experiments.common.load_trained_model. So we only verify
+# seed 0 here.
+SEED0_CKPT="results/checkpoints_n10/seed_0/deit_small_ham10000.pth"
+if [[ ! -f "${SEED0_CKPT}" ]]; then
+  echo "[recovery_backfill] FATAL: ${SEED0_CKPT} missing — pillar 0 (seed 0) dense fine-tune not present."
+  echo "                    Did you symlink results/checkpoints_n10/seed_0 -> results/checkpoints_personal/seed_0?"
+  exit 3
+fi
 for SEED in 0 1 2; do
   CKPT_DIR="results/checkpoints_n10/seed_${SEED}"
   if [[ ! -d "${CKPT_DIR}" ]]; then
     echo "[recovery_backfill] FATAL: ${CKPT_DIR} missing. Did you symlink seeds 0..2 from checkpoints_personal?"
     exit 2
-  fi
-  if [[ ! -f "${CKPT_DIR}/deit_small_ham10000.pth" ]]; then
-    echo "[recovery_backfill] FATAL: ${CKPT_DIR}/deit_small_ham10000.pth missing — pillar 0 outputs not present."
-    exit 3
   fi
   STALE_RECOVERY=$(find "${CKPT_DIR}" -maxdepth 1 -name 'recovery_*.pth' 2>/dev/null | wc -l)
   if [[ "${STALE_RECOVERY}" -gt 0 ]]; then
