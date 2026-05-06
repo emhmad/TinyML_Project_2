@@ -24,6 +24,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=32
 #SBATCH --time=48:00:00
+#SBATCH --requeue
 #SBATCH --output=results/slurm_logs/l2_isic2019_%j.out
 #SBATCH --error=results/slurm_logs/l2_isic2019_%j.err
 

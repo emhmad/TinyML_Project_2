@@ -21,6 +21,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=12:00:00
+#SBATCH --requeue
 #SBATCH --output=results/slurm_logs/p1_mechanism_%j.out
 #SBATCH --error=results/slurm_logs/p1_mechanism_%j.err
 

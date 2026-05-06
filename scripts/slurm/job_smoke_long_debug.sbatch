@@ -12,6 +12,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=32
 #SBATCH --time=02:30:00
+#SBATCH --requeue
 #SBATCH --output=results/slurm_logs/smoke_%j.out
 #SBATCH --error=results/slurm_logs/smoke_%j.err
 
