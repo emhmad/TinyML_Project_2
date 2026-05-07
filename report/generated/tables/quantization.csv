@@ -1,2 +1,2 @@
 Model config,Criterion,Sparsity,Balanced Acc,Mel Sens,Size (KB),Mean (ms),p95 (ms)
-dense,none,0%,0.849 ± 0.080,0.864 ± 0.089,84698 ± 0,20.31 ± 3.23,22.01 ± 3.52
+dense,none,0%,0.907 ± 0.043,0.889 ± 0.038,84698 ± 0,44.95 ± 13.23,52.07 ± 18.37

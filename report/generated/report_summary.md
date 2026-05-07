@@ -15,14 +15,14 @@ between Wanda / Taylor / random and the magnitude baseline live in
 
 | Model | Metric | mean diff (mag − wanda) | p | sig? |
 |---|---|---|---|---|
-| deit_small | balanced_acc | +0.1816 | 0.007 | ✓ |
-| deit_small | mel_sensitivity | +0.0184 | 0.463 |   |
-| deit_small | bcc_sensitivity | +0.3806 | 0.002 | ✓ |
-| deit_small | akiec_sensitivity | -0.1333 | 0.125 |   |
-| deit_tiny | balanced_acc | +0.3843 | 0.002 | ✓ |
-| deit_tiny | mel_sensitivity | -0.3780 | 0.000 | ✓ |
-| deit_tiny | bcc_sensitivity | +0.2851 | 0.000 | ✓ |
-| deit_tiny | akiec_sensitivity | +0.5563 | 0.005 | ✓ |
+| deit_small | balanced_acc | +0.1765 | 0.000 | ✓ |
+| deit_small | mel_sensitivity | +0.0294 | 0.000 | ✓ |
+| deit_small | bcc_sensitivity | +0.3976 | 0.000 | ✓ |
+| deit_small | akiec_sensitivity | -0.1635 | 0.000 | ✓ |
+| deit_tiny | balanced_acc | +0.4205 | 0.000 | ✓ |
+| deit_tiny | mel_sensitivity | -0.4159 | 0.000 | ✓ |
+| deit_tiny | bcc_sensitivity | +0.3557 | 0.000 | ✓ |
+| deit_tiny | akiec_sensitivity | +0.6013 | 0.000 | ✓ |
 
 Per-cell mean ± std for every (criterion, sparsity) is in `tables/pruning_headline.{md,tex,csv}`.
 
@@ -96,13 +96,13 @@ See `tables/edge_latency.md`. The `mean_ms` and `p95_ms` columns are the headlin
 
 ## W10 — Recovery sweep
 
-Recovery sweep covers epochs ∈ [np.int64(5), np.int64(10), np.int64(20)] × sparsities ∈ [np.float64(0.5)].
+Recovery sweep covers epochs ∈ [np.int64(5), np.int64(10), np.int64(20)] × sparsities ∈ [np.float64(0.5), np.float64(0.7)].
 See `tables/recovery.md`. To answer 'does Wanda catch up with more recovery?',
 compare each criterion's `Balanced Acc` and `Mel Sens` columns at 5 vs 20 recovery epochs.
 
 ## W11 — Non-uniform allocation policies
 
-Policies compared: ['binned_default', 'binned_k3', 'continuous_t1', 'dense', 'uniform']. See `tables/nonuniform.md`.
+Policies compared: ['binned_default', 'binned_k2', 'binned_k3', 'binned_k5', 'continuous_t0.5', 'continuous_t1', 'continuous_t2', 'dense', 'learnable', 'obs_like', 'uniform']. See `tables/nonuniform.md`.
 
 ## W12 — Attention overlap (quantitative)
 

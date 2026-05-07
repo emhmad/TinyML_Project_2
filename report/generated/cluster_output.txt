@@ -1,0 +1,95 @@
+=== generated tables ===
+total 141
+drwxr-xr-x 2 abdulla.alfalasi cscc-users    26 May  4 17:59 .
+drwxr-xr-x 3 abdulla.alfalasi cscc-users     7 May  4 17:59 ..
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  1065 May  6 23:10 baselines.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  2219 May  6 23:10 baselines.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  1658 May  6 23:10 baselines.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   157 May  6 23:10 edge_latency.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   395 May  6 23:10 edge_latency.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   438 May  6 23:10 edge_latency.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   403 May  6 23:10 mobilenetv2_baseline.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   928 May  6 23:10 mobilenetv2_baseline.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   779 May  6 23:10 mobilenetv2_baseline.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  2065 May  6 23:10 nonuniform.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  2871 May  6 23:10 nonuniform.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  2749 May  6 23:10 nonuniform.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users 17441 May  6 23:10 paired_tests.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users 22583 May  6 23:10 paired_tests.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users 21024 May  6 23:10 paired_tests.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  6485 May  6 23:10 pruning_headline.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  8877 May  6 23:10 pruning_headline.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  8072 May  6 23:10 pruning_headline.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   168 May  6 23:10 quantization.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   379 May  6 23:10 quantization.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users   434 May  6 23:10 quantization.tex
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  5688 May  6 23:10 recovery_sweep.csv
+-rw-r--r-- 1 abdulla.alfalasi cscc-users 10053 May  6 23:10 recovery_sweep.md
+-rw-r--r-- 1 abdulla.alfalasi cscc-users  7414 May  6 23:10 recovery_sweep.tex
+=== statistics summary ===
+{'per_model': {'deit_small': {'dense': {'balanced_acc_mean': 0.9135507348674186,
+                                        'ece_top_label_mean': 0.0165931537395615,
+                                        'mel_sensitivity_mean': 0.8957237204901347,
+                                        'melanoma_auroc_mean': 0.9641162566295408},
+                              'per_criterion_at_s0.5': {'magnitude': {'balanced_acc_mean': 0.7887727356719589,
+                                                                      'balanced_acc_std': 0.0261757336407049,
+                                                                      'dcr_mean': 1.886733617240608,
+                                                                      'ece_top_label_mean': 0.0353607239466923,
+                                                                      'mel_sensitivity_mean': 0.5706819700127781,
+                                                                      'mel_sensitivity_std': 0.0518120160336126,
+                                                                      'melanoma_auroc_mean': 0.881332962006287},
+                                                        'random': {'balanced_acc_mean': 0.132796788181249,
+                                                                   'balanced_acc_std': 0.0107760947626292,
+                                                                   'dcr_mean': 0.9903030049140708,
+                                                                   'ece_top_label_mean': 0.24856278995588,
+                                                                   'mel_sensitivity_mean': 0.0,
+                                                                   'mel_sensitivity_std': 0.0,
+                                                                   'melanoma_auroc_mean': 0.5225867597434101},
+                                                        'taylor': {'balanced_acc_mean': 0.770085648934543,
+                                                                   'balanced_acc_std': 0.0317672970257844,
+                                                                   'dcr_mean': 0.9502463080871076,
+                                                                   'ece_top_label_mean': 0.0306141063947828,
+                                                                   'mel_sensitivity_mean': 0.8426375011539153,
+                                                                   'mel_sensitivity_std': 0.0310303119795317,
+                                                                   'melanoma_auroc_mean': 0.9305269601801208},
+                                                        'wanda': {'balanced_acc_mean': 0.6122778862611866,
+                                                                  'balanced_acc_std': 0.0177056788590847,
+                                                                  'dcr_mean': 0.7670239601834724,
+                                                                  'ece_top_label_mean': 0.0992405188198255,
+                                                                  'mel_sensitivity_mean': 0.5412412666831858,
+                                                                  'mel_sensitivity_std': 0.0416323117793456,
+                                                                  'melanoma_auroc_mean': 0.8371868915563667}}},
+               'deit_tiny': {'dense': {'balanced_acc_mean': 0.9059702499823188,
+                                       'ece_top_label_mean': 0.0251491101441652,
+                                       'mel_sensitivity_mean': 0.8451833632136662,
+                                       'melanoma_auroc_mean': 0.951483975314636},
+                             'per_criterion_at_s0.5': {'magnitude': {'balanced_acc_mean': 0.7583821910359011,
+                                                                     'balanced_acc_std': 0.0375706222663016,
+                                                                     'dcr_mean': 3.8273064456009087,
+                                                                     'ece_top_label_mean': 0.0485543571606815,
+                                                                     'mel_sensitivity_mean': 0.5183138230549846,
+                                                                     'mel_sensitivity_std': 0.0476011302934206,
+                                                                     'melanoma_auroc_mean': 0.8948686516101958},
+                                                       'random': {'balanced_acc_mean': 0.1401738379990483,
+                                                                  'balanced_acc_std': 0.0064910386604846,
+                                                                  'dcr_mean': 0.6718655000117363,
+                                                                  'ece_top_label_mean': 0.1484068371982154,
+                                                                  'mel_sensitivity_mean': 0.9637261078801485,
+                                                                  'mel_sensitivity_std': 0.089028399093664,
+                                                                  'melanoma_auroc_mean': 0.4824485381733942},
+                                                       'taylor': {'balanced_acc_mean': 0.5849784693550859,
+                                                                  'balanced_acc_std': 0.0158925143890527,
+                                                                  'dcr_mean': 0.9883286990221748,
+                                                                  'ece_top_label_mean': 0.0394280497751762,
+                                                                  'mel_sensitivity_mean': 0.8144398955888855,
+                                                                  'mel_sensitivity_std': 0.121450651880029,
+                                                                  'melanoma_auroc_mean': 0.8684054146080336},
+                                                       'wanda': {'balanced_acc_mean': 0.3379233275051282,
+                                                                 'balanced_acc_std': 0.010089647116695,
+                                                                 'dcr_mean': 0.629519701439644,
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe
+=== new pillar outputs ===
+agg_attention_overlap_summary.csv  agg_baselines_paxton_xpruner.csv  agg_edge_latency.csv	agg_nonuniform_pruning.csv  agg_quantization_stacking.csv  paired_tests_pruning_matrix.csv
+agg_baseline_eval.csv		   agg_calibration_ablation.csv      agg_mobilenet_results.csv	agg_pruning_matrix.csv	    agg_recovery_finetune.csv
+ 0  ciai-login-1:~/TinyML_Project_2 $
