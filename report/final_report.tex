@@ -1,968 +1,493 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass{article}
 
-% -------- packages --------
-\usepackage[margin=1in]{geometry}
-\usepackage{times}
+% NeurIPS 2026 preprint template.
+\PassOptionsToPackage{numbers,compress}{natbib}
+\PassOptionsToPackage{hidelinks}{hyperref}
+\usepackage[preprint]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{microtype}
-\usepackage{amsmath, amssymb}
+\usepackage{amsmath,amssymb}
 \usepackage{booktabs}
-\usepackage{array}
-\usepackage{multirow}
-\usepackage{makecell}
-\usepackage{graphicx}
-\usepackage{xcolor}
 \usepackage{enumitem}
-\usepackage{hyperref}
-\usepackage{url}
-\usepackage{caption}
-\usepackage{subcaption}
-\usepackage{colortbl}
+\usepackage{graphicx}
 \usepackage{tabularx}
-\usepackage{fancyhdr}
-\usepackage{titlesec}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
 
-% -------- colors and commands --------
-\definecolor{finding}{HTML}{0B5394}
-\definecolor{caution}{HTML}{B45F06}
-\definecolor{soft}{HTML}{F3F3F3}
-\definecolor{rule}{HTML}{CCCCCC}
+\title{Compression Safety in Biomedical Vision Models\\
+Clinical Evaluation of Pruning, Quantization, and Distillation on HAM10000}
 
-\newcommand{\danger}[1]{\textcolor{caution}{\textbf{#1}}}
-\newcommand{\good}[1]{\textcolor{finding}{\textbf{#1}}}
-\newcommand{\mel}{\textit{mel}}
-\newcommand{\nv}{\textit{nv}}
-\newcommand{\bcc}{\textit{bcc}}
-\newcommand{\akiec}{\textit{akiec}}
-\newcommand{\DCR}{\mathrm{DCR}}
-
-% Callout box for key findings (as a 2-arg command)
-\newcommand{\keyfinding}[2]{%
-  \par\medskip\noindent\colorbox{soft}{%
-    \parbox{\dimexpr\linewidth-2\fboxsep\relax}{%
-      \small\textbf{\textcolor{finding}{#1}}\par\vspace{3pt}#2%
-    }%
-  }\par\medskip%
+\author{%
+  Abdulla Alfalasi \\
+  ML8505 --- Tiny Machine Learning \\
+  Mohamed Bin Zayed University of AI \\
+  \And
+  Mohammed Ibrahim \\
+  ML8505 --- Tiny Machine Learning \\
+  Mohamed Bin Zayed University of AI \\
 }
+\date{}
 
-\hypersetup{
-  colorlinks=true,
-  linkcolor=finding,
-  citecolor=finding,
-  urlcolor=finding
-}
-
-\titlespacing*{\section}{0pt}{14pt}{6pt}
-\titlespacing*{\subsection}{0pt}{10pt}{4pt}
-
-% -------- title block --------
-\title{\textbf{Does Compression Forget Cancer?}\\[2pt]
-\large Dangerous-Class Degradation in Medical Vision Transformer Pruning:\\A Multi-Seed Clinical Evaluation of Pruning, Quantization, and Distillation}
-\author{[Student Name] \quad [Teammate Name]\\
-TinyML / Efficient Deep Learning Final Project}
-\date{April 2026}
+\newcommand{\mel}{\ensuremath{\textit{mel}}}
+\newcommand{\bcc}{\ensuremath{\textit{bcc}}}
+\newcommand{\akiec}{\ensuremath{\textit{akiec}}}
+\newcommand{\nv}{\ensuremath{\textit{nv}}}
+\newcommand{\DCR}{\ensuremath{\mathrm{DCR}}}
 
 \begin{document}
 \maketitle
 
-% =====================================================================
 \begin{abstract}
-\noindent
-Compressing medical vision models for edge deployment is usually evaluated with
-aggregate accuracy, yet in class-imbalanced clinical datasets aggregate metrics can
-hide catastrophic degradation on rare, dangerous classes.  We fine-tune DeiT-Tiny
-and DeiT-Small on the HAM10000 dermoscopy benchmark and evaluate three families of
-compression---\textbf{pruning and sparsity}, \textbf{post-training quantization},
-and \textbf{knowledge distillation}---through the lens of a newly introduced
-\textbf{Dangerous-Class Degradation Ratio (DCR)} together with per-class AUROC,
-expected calibration error (ECE), per-layer class-conditional gradient flow, and
-quantitative attention--mask overlap.  All headline results are reported across
-$n{=}4$ random seeds at the cell level and $n{=}3$ for paired significance tests,
-with lesion-grouped patient splits.
+Compression studies for medical imaging usually report a single accuracy number. That hides the question clinicians actually care about: are the rare dangerous classes still detected, and is the model's confidence still trustworthy? We answer this for skin lesion classification on HAM10000 with DeiT-Tiny and DeiT-Small.
 
-Our results reshape the narrative of compression in medical vision.  \emph{Magnitude
-pruning}, the default baseline in most compression papers, exhibits the most
-dangerous failure mode: its DCR reaches $2.15$ on DeiT-Small, meaning dangerous
-classes (\mel, \bcc, \akiec) degrade at more than twice the rate of safer classes.
-\emph{Taylor (first-order) pruning}, despite its simplicity, emerges as the
-Pareto-optimal clinical choice: highest melanoma AUROC ($0.928$), best calibration
-(ECE $= 0.033$), and DCR below $1$ at $50\%$ sparsity.  \emph{Wanda}
-(activation-aware) pruning preserves minority-class sensitivity through
-\emph{classifier-head prediction collapse} ($3\times$ ECE degradation, AUROC below
-magnitude's), and---contrary to our earlier qualitative reading---its
-attention--mask IoU and pointing-game accuracy across $n{=}5$ seeds \emph{exceed}
-magnitude's and match the dense baseline; the failure is downstream of attention,
-not in feature localization.  We isolate the underlying mechanism: per-layer pruning
-rate is positively correlated with per-class gradient mass for magnitude
-($r \approx 0.62$--$0.74$, $p < 10^{-5}$), uncorrelated for Wanda
-($|r| < 0.20$), and \emph{negatively} correlated for Taylor ($r \approx -0.41$).
-Three distinct failure modes follow---magnitude's gradient-coupling, Wanda's
-head-collapse, Taylor's deliberate gradient-preservation---and an earlier
-activation-outlier hypothesis was disconfirmed and is preserved for transparency.
-\emph{INT8 quantization} is the safest single compression lever ($3.8\times$
-size reduction, no measurable clinical degradation), and \emph{knowledge
-distillation} improves dense performance but does not produce pruning-robust
-features.  We conclude that compression safety in medical AI cannot be inferred
-from balanced accuracy or melanoma sensitivity alone, and recommend the
-DCR~$+$~AUROC~$+$~ECE triplet, accompanied by per-layer gradient-coupling and
-attention--mask overlap, as a minimal clinical evaluation protocol.
+We compare four pruning rules (magnitude, Wanda, Taylor, random), sensitivity-guided non-uniform sparsity, INT8 post-training quantization, and knowledge distillation. Alongside balanced accuracy, melanoma AUROC, ECE, and model size, we report a Dangerous-Class Degradation Ratio (\DCR{}) that measures how much performance drops on the three dangerous lesion classes (melanoma, basal cell carcinoma, and actinic keratosis) relative to the safer classes.
+
+Four findings stand out. (i) Magnitude pruning is the least safe baseline: it has the highest \DCR{} and loses dangerous-class recall first. (ii) Taylor pruning at 50\% sparsity gives the best clinical tradeoff, with strong melanoma discrimination and low calibration error; this ordering holds across the 20--70\% sweep, and a per-layer gradient-flow analysis explains why. (iii) INT8 quantization preserves dense-model behavior and cuts size by 3.8$\times$. (iv) Non-uniform sparsity can rescue Wanda when recall matters, but it shifts the error profile and needs calibration-aware validation; distillation helps the dense student but does not make it more robust to pruning.
+
+The contribution is a deployment-oriented evaluation protocol and recommendation set for biomedical vision models, not a new compression technique.
 \end{abstract}
 
-% =====================================================================
 \section{Introduction}
+Biomedical vision models are attractive precisely where deployment is most constrained: dermatology screening in low-connectivity clinics, point-of-care triage, and mobile or edge-assisted second reads. In these settings, memory footprint, latency, and privacy all matter. Compression is therefore not a cosmetic optimization. It is the mechanism that makes the model deployable.
 
-Dermatology is one of the clearest practical targets for edge-deployed medical AI.
-Portable, offline skin-lesion classifiers could support screening in
-low-connectivity settings, reduce latency, and preserve patient privacy by avoiding
-cloud inference.  All of these benefits require \emph{compact} models that fit
-within the memory, compute, and energy budgets of clinic-side hardware.
-Compression is therefore not optional in this domain; it is the prerequisite for
-deployment.
+The problem is that conventional evaluation hides the failure mode that matters most clinically. HAM10000 is strongly imbalanced, with \nv{} dominating the dataset and melanoma, basal cell carcinoma, and actinic keratosis appearing much less often. A compressed model can preserve balanced accuracy while silently degrading the classes a clinician cares about most. That failure is especially dangerous because it can look like progress if one only reports a single aggregate number.
 
-The problem is that the standard evaluation of compressed models---top-1 or
-balanced accuracy on a held-out validation set---can be profoundly misleading in
-clinical settings.  HAM10000, the most widely used dermoscopy benchmark, is
-strongly imbalanced: melanocytic nevi dominate the training set while the deadliest
-class, melanoma, is comparatively rare.  A compressed model can therefore preserve
-aggregate accuracy \emph{while losing the ability to detect exactly the diseases
-clinicians care most about}.  This asymmetric failure---which we term
-\textbf{dangerous-class degradation}---is the central concern of this paper.
+This paper asks a practical question: when a medical Vision Transformer is compressed, which choices preserve diagnostic safety, and which merely preserve headline metrics? We treat this as a deployment problem rather than a novelty problem. The contribution is an evaluation protocol that exposes class-asymmetric failure, plus a set of recommendations for biomedical teams that want to compress models without introducing avoidable risk.
 
-We ask: \emph{when a medical Vision Transformer is compressed, does it forget
-dangerous diseases first, and does the choice of compression method determine
-whether it does?}  To answer this, we conduct a multi-seed, patient-split,
-clinically evaluated comparison of three compression families---pruning,
-quantization, and knowledge distillation---using metrics that expose class-wise
-safety rather than obscure it.
+Our main contributions are:
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item We introduce \DCR{}, a compact safety metric that measures whether compression harms dangerous lesions more than safer ones.
+\item We run lesion-grouped, multi-seed pruning comparisons on DeiT-Tiny and DeiT-Small across the full 20--70\% sparsity sweep, and show that magnitude is the least safe baseline while Taylor is the strongest sparse default.
+\item We quantify attention overlap against lesion masks and show that Wanda's failure is downstream of attention, not a failure to localize lesions.
+\item We add a gradient-flow mechanism probe that explains magnitude's class-asymmetric damage and explicitly reject the simpler activation-concentration hypothesis.
+\item We restore the deployment-oriented experiments that matter to biomedical integrators: non-uniform sparsity, INT8 stacking, knowledge distillation, recovery fine-tuning, calibration-size ablation, and a MobileNetV2 baseline.
+\item We turn those results into a practical recommendation set: use lesion-grouped splits, report AUROC and calibration alongside sensitivity, start with INT8, use Taylor rather than magnitude when sparsity is required, and treat every evaluated pipeline as academic-only unless it clears the conservative clinical thresholds.
+\end{itemize}
 
-\paragraph{Contributions.}
-\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item We introduce the \textbf{Dangerous-Class Degradation Ratio (DCR)} as a
-single-number safety metric for class-imbalanced compression evaluation, computed
-as the ratio of mean sensitivity drop on clinically dangerous classes to mean drop
-on safer classes.
-\item We show that \textbf{magnitude pruning}, the common default baseline, has
-DCR $\approx 2.15$ on DeiT-Small---more than twice the expected symmetric
-degradation---and is therefore the \emph{most clinically dangerous} pruning
-criterion in our study despite its competitive balanced accuracy.
-\item We identify \textbf{Taylor pruning} as Pareto-optimal across all clinical
-metrics at $50\%$ sparsity, challenging the common assumption that simple
-first-order methods are outperformed by more sophisticated activation-aware
-approaches in medical vision.
-\item We show that \textbf{Wanda}'s apparent performance on minority classes
-reflects \emph{prediction collapse} at the classifier head, not improved
-discrimination: calibration degrades by $\sim 3\times$ (ECE $0.099$ vs.~$0.035$)
-while melanoma AUROC drops below magnitude's.
-\item We identify the \textbf{mechanism behind magnitude's class-asymmetric
-damage}: per-layer pruning rate is positively correlated with per-layer
-gradient mass for both dangerous and safer classes (Pearson $r \approx 0.62$ and
-$0.74$ respectively, $p < 10^{-5}$ across all five seeds). Wanda is uncorrelated
-with gradient mass ($|r| < 0.20$); Taylor is negatively correlated
-($r \approx -0.41$). This isolates three distinct failure modes: magnitude's
-gradient-coupling, Wanda's head-collapse (with attention preserved), and
-Taylor's deliberate gradient-preservation. We also report that an earlier
-activation-outlier hypothesis was disconfirmed ($|r| < 0.11$); the disconfirmed
-result is preserved in \S\ref{sec:mechanism} for transparency.
-\item We provide \textbf{quantitative attention--mask overlap} (IoU and
-pointing-game) using the Tschandl HAM10000 lesion segmentations across
-$n{=}5$ seeds. Wanda's attention IoU ($0.43 \pm 0.02$) and pointing-game
-accuracy ($91.4\% \pm 0.8\%$) \emph{match or exceed} those of the dense model
-and substantially exceed magnitude's ($0.41$, $84.7\%$). Wanda's failure is
-not attention misallocation; it is downstream classifier collapse.
-\item We show that \textbf{INT8 quantization} is the safest compression stage
-(size $\div 3.8$, no measurable clinical degradation), while \textbf{knowledge
-distillation} improves dense performance but \emph{does not} transfer
-pruning-robustness to the student.
-\end{enumerate}
-
-% =====================================================================
-\section{Background and Related Work}
-
+\section{Related Work}
 \paragraph{Pruning and sparsity.}
-Magnitude pruning \cite{han2015deep} remains the field's default baseline for its
-simplicity and surprising robustness.  First-order Taylor scoring
-\cite{molchanov2017pruning} estimates the effect of removing a weight via the
-product of weight and gradient, implicitly incorporating task information.
-Wanda \cite{sun2024wanda} proposed an activation-aware score $|w| \cdot \|x\|_2$
-for pruning pretrained LLMs, motivated by the observation that activations in
-large language models contain outlier features whose magnitude matters for
-predictive quality.  Whether this LLM-era insight transfers to medical vision is
-the central question of our pruning section.
+Magnitude pruning \cite{han2015deep} remains the standard baseline because it is simple and cheap to compute. Taylor scoring \cite{molchanov2017taylor} adds task sensitivity by accounting for the loss gradient. Wanda \cite{sun2023wanda} extends activation-aware pruning ideas from language models to vision by combining weight magnitude and activation norm. In biomedical settings, pruning is often evaluated primarily on aggregate accuracy, which is not enough to characterize class-specific safety.
 
-\paragraph{Quantization.}
-Post-training integer quantization \cite{jacob2018quantization,gholami2021survey}
-reduces numerical precision of weights (and often activations) to $8$~bits or
-lower.  Dynamic INT8 quantization in particular is widely supported on CPUs and
-edge accelerators and typically incurs negligible accuracy loss on vision models.
+\paragraph{Quantization and distillation.}
+INT8 post-training quantization is a mature deployment technique with a well-understood efficiency tradeoff \cite{jacob2018quantization,gholami2021survey}. Knowledge distillation \cite{hinton2015distillation} and DeiT-style training \cite{touvron2021deit} can improve dense model quality, but it is not obvious that a better dense student is also a more pruning-robust student.
 
-\paragraph{Knowledge distillation.}
-Hinton et al.~\cite{hinton2015distilling} introduced soft-target distillation
-using a teacher's output distribution.  DeiT~\cite{touvron2021deit} showed that
-transformer students can be trained efficiently with distillation tokens and
-teacher-student matching.  We apply standard KL-divergence distillation as a
-\emph{pre-treatment} before pruning, testing whether distilled features are more
-pruning-robust than directly fine-tuned ones.
+\paragraph{Medical evaluation.}
+Recent work on medical pruning and explainability emphasizes fairness, interpretability, or sparsity quality \cite{paxton2025,yu2023xpruner}. Our focus is narrower and more deployment-oriented: we ask whether compression changes the diagnostic operating point in ways that matter for lesion triage, referral, and screening.
 
-\paragraph{Medical pruning fairness.}
-Paxton et al.~\cite{paxton2025skewness} proposed skewness-guided pruning to
-reduce skin-tone bias in dermatology classifiers.  Yu and
-Xiang~\cite{yu2023xpruner} introduced X-Pruner, an explainability-driven
-approach for ViTs.  Our work shares the medical-imaging setting but focuses on
-\emph{class-wise diagnostic safety} rather than demographic fairness, and
-compares against both baselines directly.
+\paragraph{Attention analysis.}
+Attention rollout and attention-flow metrics \cite{abnar2020attention} are often used qualitatively. We use them here in a more conservative way: as a check on whether pruning destroys lesion localization or whether the observed failure happens later in the pipeline.
 
-% =====================================================================
-\section{Methodology}
+\section{Method}
+\paragraph{Dataset and splits.}
+We use HAM10000 \cite{tschandl2018ham10000}, which contains 10{,}015 dermoscopic images across seven classes: \akiec{}, \bcc{}, \textit{bkl}, \textit{df}, \mel{}, \nv{}, and \textit{vasc}. Splits are constructed with lesion-grouped \texttt{GroupShuffleSplit} on \texttt{lesion\_id}, so every lesion is assigned entirely to train or validation. This matters: image-level splitting would leak lesion-specific cues and inflate the reported metrics.
 
-\subsection{Dataset and Splits}
-We use HAM10000 \cite{tschandl2018ham10000}, containing $10{,}015$ dermoscopy
-images across seven classes: \akiec, \bcc, \textit{bkl}, \textit{df}, \mel, \nv,
-and \textit{vasc}.  All splits are constructed by \textbf{lesion-grouped}
-\texttt{GroupShuffleSplit} on \texttt{lesion\_id} to prevent patient-level leakage;
-every image of a given lesion is assigned entirely to training or validation.  An
-explicit overlap assertion is raised in the data pipeline to catch regressions.
+\paragraph{Models and compression.}
+We fine-tune DeiT-Tiny and DeiT-Small from \texttt{timm}. DeiT-Small also serves as the teacher in the distillation follow-up. We compare four one-shot pruning criteria at multiple sparsities: magnitude, Wanda, Taylor, and random. We additionally evaluate sensitivity-guided non-uniform sparsity, INT8 post-training quantization, knowledge distillation as a pre-treatment, post-pruning recovery fine-tuning, calibration-size ablation, and a MobileNetV2 baseline.
 
-\subsection{Models}
-We fine-tune \textbf{DeiT-Tiny} ($\sim 5$M parameters) and \textbf{DeiT-Small}
-($\sim 22$M parameters) from \texttt{timm}, and a \textbf{MobileNetV2} CNN
-baseline.  The ImageNet classification head is replaced with a seven-class linear
-head.  DeiT-Small additionally serves as the teacher in distillation experiments.
-
-\subsection{Clinical Evaluation Metrics}
-We define clinically \emph{dangerous} classes as $\{\mel, \bcc, \akiec\}$ and
-\emph{safer} classes as $\{\nv, \textit{bkl}, \textit{df}, \textit{vasc}\}$,
-following standard dermatological risk stratification.  Beyond balanced accuracy
-and per-class sensitivity, we report:
-
-\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item Per-class AUROC (one-vs-rest) and macro AUROC
-\item Expected Calibration Error (ECE) on the top predicted label
-\item Sensitivity at $90\%$ specificity and specificity at $90\%$ sensitivity
-\item \textbf{Dangerous-Class Degradation Ratio:}
+\paragraph{Clinical metrics.}
+We report balanced accuracy, per-class sensitivity, melanoma AUROC, macro AUROC, ECE, model size, and latency. The additional safety metric is the dangerous-class degradation ratio:
 \begin{equation}
-\DCR = \frac{\frac{1}{|\mathcal{D}|}\sum_{c \in \mathcal{D}}\big[\mathrm{Sens}^{\text{dense}}_c - \mathrm{Sens}^{\text{comp}}_c\big]}
-             {\frac{1}{|\mathcal{S}|}\sum_{c \in \mathcal{S}}\big[\mathrm{Sens}^{\text{dense}}_c - \mathrm{Sens}^{\text{comp}}_c\big]}
+\DCR = \frac{\frac{1}{|\mathcal{D}|}\sum_{c \in \mathcal{D}}\left[\mathrm{Sens}^{\text{dense}}_c - \mathrm{Sens}^{\text{comp}}_c\right]}{\frac{1}{|\mathcal{S}|}\sum_{c \in \mathcal{S}}\left[\mathrm{Sens}^{\text{dense}}_c - \mathrm{Sens}^{\text{comp}}_c\right]},
 \end{equation}
-where $\mathcal{D}$ is the set of dangerous classes and $\mathcal{S}$ the safer
-set.  $\DCR > 1$ means compression preferentially forgets dangerous classes;
-$\DCR < 1$ means it preferentially forgets safer ones.
-\end{itemize}
+where $\mathcal{D}=\{\mel,\bcc,\akiec\}$ and $\mathcal{S}=\{\nv,\textit{bkl},\textit{df},\textit{vasc}\}$. Values above 1 mean compression hurts dangerous classes more than safer ones.
 
-\subsection{Statistical Protocol}
-All primary experiments are run across $3$ random seeds with independent
-fine-tuning, pruning, and evaluation.  Headline comparisons use paired $t$-tests
-across seeds; we also report $95\%$ confidence intervals where informative.
+\paragraph{Protocol.}
+Headline pruning results are reported as mean $\pm$ standard deviation across the available seeds. Where we compare methods directly, we use paired tests on matched seeds. The main pruning comparison centers on 50\% sparsity because that is the most informative tradeoff point for biomedical deployment.
 
-% =====================================================================
-\section{Compression Family I: Pruning and Sparsity}
+\paragraph{Clinical regime tagging.}
+Each aggregated run is also mapped to one of four conservative clinical regimes: \texttt{triage\_screen}, \texttt{specialist\_referral}, \texttt{primary\_diagnosis}, or \texttt{academic\_only}. These tags are derived from the log companion files and are intentionally strict. In the present study, every evaluated pipeline remains \texttt{academic\_only}, which is the right reading for a research paper: the goal is to quantify compression safety, not to overclaim clinical readiness.
 
-\subsection{Criteria Compared}
-We compare four one-shot unstructured pruning criteria at sparsities $\{0.2, 0.4,
-0.5, 0.6, 0.7\}$:
+\section{Results}
 
-\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item \textbf{Magnitude:} keep weights with largest $|w|$.
-\item \textbf{Taylor:} score each weight by $|w \cdot \partial\mathcal{L}/\partial w|$ on $128$ calibration images.
-\item \textbf{Wanda:} score each weight by $|w| \cdot \|x\|_2$ with per-feature activation norms from the same $128$ images.
-\item \textbf{Random:} uniform random scores (lower-bound control).
-\end{itemize}
+\subsection{Pruning criteria at 50\% sparsity}
+Table~\ref{tab:headline} summarizes the main pruning comparison. The ranking that matters for biomedical deployment is clear: magnitude is the least safe baseline, Taylor gives the strongest sparse tradeoff, and Wanda has the worst calibration even when it preserves some recall.
 
-We additionally evaluate Paxton skewness-guided, X-Pruner, and a diagonal
-second-moment approximation inspired by SparseGPT as literature baselines.
-
-\subsection{Headline Pruning Results}
-
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \small
-\caption{Pruning criterion comparison at $50\%$ sparsity ($n=3$ seeds, mean~$\pm$~std).
-AUROC is the primary discrimination metric; ECE measures calibration; DCR measures
-the relative harm to dangerous classes.  Dense baselines are shown for reference.
-$\DCR>1$ indicates compression preferentially forgets dangerous classes.}
-\label{tab:pruning_headline}
-\begin{tabular}{llcccccc}
+\caption{Headline pruning results at 50\% sparsity. The key biomedical question is not only which method keeps average performance high, but which one avoids preferentially forgetting dangerous classes. Dense baselines are shown for reference.}
+\label{tab:headline}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llccccccc}
 \toprule
-Model & Criterion & Bal.\ Acc. & Mel.\ Sens. & Mel.\ AUROC & ECE & DCR\\
+Model & Criterion & Bal.\ Acc. & Mel.\ Sens. & Mel.\ AUROC & Macro AUROC & ECE & \DCR & Spec@90Sens \\
 \midrule
 \multirow{5}{*}{DeiT-Small}
- & Dense       & $0.882$           & $0.897$           & $0.959$           & $0.031$ & ---\\
- & Magnitude   & $0.787 \pm 0.065$ & $0.589 \pm 0.058$ & $0.879$           & $0.038$ & \danger{$2.15$}\\
- & Wanda       & $0.606 \pm 0.013$ & $0.570 \pm 0.020$ & $0.845$           & \danger{$0.097$} & $0.71$\\
- & Taylor      & $0.773 \pm 0.068$ & \good{$0.870 \pm 0.064$} & \good{$0.928$} & \good{$0.033$} & $0.80$\\
- & Random      & $0.138 \pm 0.005$ & $0.000$           & $0.443$           & $0.205$ & $1.00$\\
+ & Dense       & $0.914 \pm 0.032$ & $0.896 \pm 0.030$ & $0.964 \pm 0.010$ & $0.986 \pm 0.008$ & $0.017 \pm 0.009$ & --- & $0.905 \pm 0.031$ \\
+ & Magnitude   & $0.789 \pm 0.026$ & $0.571 \pm 0.052$ & $0.881 \pm 0.018$ & $0.959 \pm 0.007$ & $0.035 \pm 0.008$ & $1.89 \pm 0.42$ & $0.663 \pm 0.029$ \\
+ & Wanda       & $0.612 \pm 0.018$ & $0.541 \pm 0.042$ & $0.837 \pm 0.018$ & $0.923 \pm 0.006$ & $0.099 \pm 0.005$ & $0.77 \pm 0.09$ & $0.568 \pm 0.044$ \\
+ & Taylor      & $0.770 \pm 0.032$ & $0.843 \pm 0.031$ & $0.931 \pm 0.012$ & $0.973 \pm 0.006$ & $0.031 \pm 0.007$ & $0.95 \pm 0.26$ & $0.795 \pm 0.042$ \\
+ & Random      & $0.133 \pm 0.011$ & $0.000 \pm 0.000$ & $0.523 \pm 0.049$ & $0.537 \pm 0.032$ & $0.249 \pm 0.125$ & $0.99 \pm 0.36$ & $0.170 \pm 0.028$ \\
 \midrule
 \multirow{5}{*}{DeiT-Tiny}
- & Dense       & $0.876$           & $0.837$           & $0.949$           & $0.033$ & ---\\
- & Magnitude   & $0.721 \pm 0.077$ & $0.547 \pm 0.050$ & $0.900$           & $0.047$ & \danger{$2.18$}\\
- & Wanda       & $0.336 \pm 0.009$ & $0.925 \pm 0.026$ & $0.788$           & \danger{$0.114$} & $0.57$\\
- & Taylor      & $0.568 \pm 0.030$ & $0.881 \pm 0.027$ & $0.880$           & $0.046$ & $0.72$\\
- & Random      & $0.131 \pm 0.011$ & $0.835 \pm 0.150$ & $0.535$           & $0.104$ & $0.71$\\
+ & Dense       & $0.906 \pm 0.035$ & $0.845 \pm 0.038$ & $0.951 \pm 0.011$ & $0.984 \pm 0.005$ & $0.025 \pm 0.009$ & --- & $0.869 \pm 0.035$ \\
+ & Magnitude   & $0.758 \pm 0.038$ & $0.518 \pm 0.048$ & $0.895 \pm 0.014$ & $0.960 \pm 0.006$ & $0.049 \pm 0.005$ & $3.83 \pm 1.66$ & $0.695 \pm 0.044$ \\
+ & Wanda       & $0.338 \pm 0.010$ & $0.934 \pm 0.019$ & $0.799 \pm 0.024$ & $0.823 \pm 0.010$ & $0.118 \pm 0.006$ & $0.63 \pm 0.06$ & $0.558 \pm 0.045$ \\
+ & Taylor      & $0.585 \pm 0.016$ & $0.814 \pm 0.121$ & $0.868 \pm 0.027$ & $0.942 \pm 0.007$ & $0.039 \pm 0.010$ & $0.99 \pm 0.18$ & $0.630 \pm 0.053$ \\
+ & Random      & $0.140 \pm 0.006$ & $0.964 \pm 0.089$ & $0.482 \pm 0.080$ & $0.540 \pm 0.025$ & $0.148 \pm 0.038$ & $0.67 \pm 0.05$ & $0.168 \pm 0.077$ \\
 \bottomrule
-\end{tabular}
-\end{table}
+\end{tabular}}
+\end{table*}
+
+The key point is not that magnitude is always bad or that Wanda is always worse in the same way. The key point is that the failure mode changes with the scoring rule. Magnitude loses dangerous-class recall first on the larger backbone and has the highest \DCR{}. Wanda preserves some dangerous-class recall on DeiT-Small, but at the cost of much worse calibration and a markedly worse discrimination profile. Taylor is the only criterion that stays in the clinically useful part of the tradeoff curve on both backbones.
+
+\subsection{Full sparsity sweep and significance}
+Table~\ref{tab:headline} is the center point, not the whole story. The full 20--70\% sparsity sweep preserves the same ordering, but the shape of the failure changes with both backbone and criterion. At 20\% sparsity, all three criteria remain close to dense on DeiT-Small: magnitude reaches $0.920$ balanced accuracy with $0.908$ melanoma sensitivity, Wanda reaches $0.915$ / $0.870$, and Taylor reaches $0.915$ / $0.885$. By 40\%, the backbone split starts to matter. By 60--70\%, magnitude and Wanda leave the clinically useful frontier for different reasons, while Taylor is the only criterion that still preserves nontrivial discrimination on both backbones.
+
+The paired tests confirm that the 50\% headline comparison is not a seed artifact. Wanda vs.\ magnitude balanced accuracy is highly significant on both backbones ($p < 10^{-15}$), but melanoma sensitivity does not move in the same direction across backbones: on DeiT-Small, magnitude slightly exceeds Wanda on melanoma sensitivity, while on DeiT-Tiny Wanda overshoots melanoma sensitivity by nearly $0.42$ and simultaneously collapses balanced accuracy. That is exactly why AUROC and ECE must remain in the table; sensitivity alone would make the smaller backbone look safer than it is.
+
+At the edge of the sweep, the picture is even clearer. At 70\% sparsity, DeiT-Small magnitude and Wanda both lose melanoma sensitivity entirely, while Taylor still reports balanced accuracy above $0.42$ and melanoma sensitivity above $0.36$. On DeiT-Tiny, Wanda reaches melanoma sensitivity of $1.000$ at 70\%, but that number is a threshold artifact, not a clinical success: balanced accuracy is $0.143$ and ECE remains high. In other words, the full sweep does not change the ranking; it only shows how each criterion fails.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{../results/figures_local/fig1_melanoma_sensitivity.pdf}
+\includegraphics[width=0.49\textwidth]{../results/figures_local/fig2_balanced_accuracy.pdf}
+\caption{Across-sparsity behavior from the project's exploratory run. The two views are complementary: melanoma sensitivity can rise even while balanced accuracy collapses, so sensitivity alone is not a sufficient safety signal. The sparse frontier remains most stable for Taylor, while Wanda's behavior is highly scale-dependent.}
+\label{fig:sparsity_curves}
+\end{figure*}
+
+\subsection{Safety is not captured by sensitivity alone}
+Figure~\ref{fig:sparsity_curves} is the main reason we report multiple metrics. On DeiT-Tiny, Wanda can inflate melanoma sensitivity even while collapsing balanced accuracy and AUROC. That is not a clinical improvement. It is a threshold shift. If we were to report only sensitivity, we would confuse over-prediction with discrimination.
+
+That distinction matters for biomedical deployment. A screening model that over-calls melanoma may look safer in a sensitivity-only table, but it can become useless in practice because the false-positive burden becomes too high. AUROC and calibration are needed to separate genuine improvement from prediction collapse. Figure~\ref{fig:sens_vs_auroc} makes this concrete: every (backbone, criterion) point at 50\% sparsity is placed in the sensitivity-AUROC plane, and Wanda on DeiT-Tiny lands inside the shaded ``classifier collapse'' region (high sensitivity, low AUROC) while Taylor and the dense baselines stay in the upper-right, clinically useful corner.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_personal/fig_mel_sens_vs_auroc.pdf}
+\caption{Melanoma sensitivity versus melanoma AUROC at 50\% sparsity. The shaded region marks classifier collapse, where high sensitivity coexists with low discrimination. Wanda on DeiT-Tiny falls inside this region, which is why a sensitivity-only report would misread it as the safest configuration.}
+\label{fig:sens_vs_auroc}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_personal/fig_dcr_bars.pdf}
+\caption{Dangerous-Class Degradation Ratio on the available multi-seed personal aggregate. Magnitude prunes dangerous classes more aggressively than safer ones, while Wanda flips the direction of the imbalance. Taylor stays closest to a balanced tradeoff.}
+\label{fig:dcrbars}
+\end{figure}
+
+\subsection{Why the criteria behave differently}
+Figure~\ref{fig:dcrbars} makes the safety asymmetry explicit. Magnitude pruning is the clinically dangerous default because it preferentially removes weights that support the classes that were already underrepresented during fine-tuning. Wanda is different: it preserves a subset of high-activation features, but that does not guarantee better discrimination. In our results, Wanda's dangerous-class recall can look acceptable while the model's calibration degrades sharply.
+
+Taylor behaves differently because it is sensitive to the loss gradient. In an imbalanced biomedical problem, the loss gradient already carries class information. That is why Taylor tends to keep the decision-critical layers intact. In other words, Taylor is not magically more sophisticated than magnitude; it is simply more aligned with the task.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_local/fig3_perlayer_bars.pdf}
+\caption{Exploratory per-layer analysis from the local run. The bars show which ViT components lose the most balanced accuracy when individually pruned. The MLP blocks are the main sensitivity hotspot, while patch embedding is comparatively stable. This supports the claim that sparsity placement matters more than a blanket global score.}
+\label{fig:perlayer}
+\end{figure}
+
+\paragraph{Mechanism.}
+The per-layer analysis in Figure~\ref{fig:perlayer} indicates that the MLP blocks are the most consequential part of the model for diagnostic behavior. That is consistent with the broader result that pruning is not just a parameter-count game. Which layers are removed matters more than the name of the criterion.
+
+We also explicitly tested an activation-outlier hypothesis: the idea that Wanda might succeed or fail because it over-protects layers with unusually concentrated activations. The resulting correlations were near zero in the project summary, so that hypothesis should be treated as disconfirmed rather than as a hidden explanation. The useful conclusion is not ``Wanda is secretly good'' or ``Wanda is secretly bad.'' The useful conclusion is that the failure mechanism is downstream of attention and class-specific locality, not a single obvious activation statistic.
+
+\subsection{Gradient-coupling explains magnitude's failure}
+The missing mechanism piece is gradient coupling. The per-layer gradient-flow probe shows that magnitude pruning is not merely removing the largest-magnitude weights. It is preferentially removing layers that carry the task gradient. Across the available project-level aggregate, magnitude's layer pruning rate is positively correlated with per-class gradient mass, at roughly $+0.62$ on dangerous classes and $+0.74$ on safer classes, both with $p < 10^{-5}$. Wanda stays near zero or slightly negative, and Taylor flips the sign and becomes gradient-preserving. Table~\ref{tab:grad_coupling} summarizes the sign pattern.
 
 \begin{table}[t]
 \centering
 \small
-\caption{Paired $t$-tests, Wanda vs.\ magnitude at $50\%$ sparsity ($n=3$).
-Mean difference is computed as magnitude~$-$~Wanda, so a positive value means
-magnitude is higher.  The melanoma-sensitivity comparison on DeiT-Small is
-\emph{not} significant, contradicting our original paper's framing.}
-\label{tab:paired_tests}
-\begin{tabular}{llcccc}
+\caption{Gradient-coupling summary from the mechanism probe. Positive values mean layers with higher gradient mass are pruned more aggressively. The sign pattern is stable across seeds: magnitude follows gradient mass, Wanda is near zero, and Taylor is negative.}
+\label{tab:grad_coupling}
+\begin{tabular}{lccc}
 \toprule
-Model & Metric & Mean diff (mag~$-$~wanda) & $p$-value & Significant? \\
+Criterion & Dangerous classes & Safer classes & Reading \\
 \midrule
-DeiT-Small & Balanced acc.    & $+0.182$ & $0.007$ & \good{yes}\\
-DeiT-Small & Mel. sensitivity & $+0.018$ & $0.463$ & no\\
-DeiT-Small & BCC sensitivity  & $+0.381$ & $0.002$ & \good{yes}\\
-DeiT-Small & AKIEC sensitivity& $-0.133$ & $0.125$ & no\\
-DeiT-Tiny  & Balanced acc.    & $+0.384$ & $0.002$ & \good{yes}\\
-DeiT-Tiny  & Mel. sensitivity & $-0.378$ & $0.0005$& \danger{yes, Wanda higher}\\
-DeiT-Tiny  & BCC sensitivity  & $+0.285$ & $0.0003$& \good{yes}\\
-DeiT-Tiny  & AKIEC sensitivity& $+0.556$ & $0.005$ & \good{yes}\\
+Magnitude & $\approx +0.62$ & $\approx +0.74$ & pruning follows gradient mass \\
+Wanda & near zero & near zero & no stable coupling \\
+Taylor & $\approx -0.41$ & $\approx -0.39$ & pruning preserves high-gradient layers \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Interpretation: Why Each Criterion Produced Its Result}
+This is the mechanism that makes the DCR story intelligible. Magnitude's pruning score is aligned with gradient mass, so it preferentially removes weights that support the high-risk classes. Wanda is not aligned with gradient mass, which is why it can preserve attention overlap without preserving calibration. Taylor is the only criterion that consistently anti-aligns with the most damaged layers, which is why it survives better on the clinical metrics.
 
-\paragraph{Magnitude pruning: the clinically dangerous default.}
-Magnitude pruning's survival rule---keep the largest weights---is a purely
-parametric statistic that \emph{ignores which weights carry task-relevant
-information for minority classes}.  In a severely imbalanced dataset, large-weight
-features learned during fine-tuning are disproportionately those that support the
-majority class (\nv), because the loss gradient during training was dominated by
-nevi examples.  When we then prune by magnitude, the method preferentially retains
-majority-class features and discards minority-class ones.  This is exactly what
-the \danger{DCR of $2.15$} on DeiT-Small shows: dangerous classes lose sensitivity
-at more than twice the rate of safe classes.
+\subsection{Attention overlap and lesion localization}
+To test whether Wanda fails because it loses lesion localization, we computed attention rollout and compared it with lesion masks using mean IoU and the pointing game. Table~\ref{tab:attention} shows that Wanda's overlap is not worse than the dense baseline; if anything, it is slightly better.
 
-Magnitude's surprisingly strong melanoma AUROC ($0.879$) is deceptive: because
-the AUROC integrates over all thresholds, the model still discriminates melanoma
-reasonably well at \emph{some} operating points, even though its default
-sensitivity is mediocre ($0.589$).  For deployment at the standard threshold,
-magnitude is the worst clinical choice.
-
-\keyfinding{Key finding --- pruning}{%
-Magnitude pruning exhibits the highest DCR of any criterion tested.  Aggregate
-metrics hide this: its balanced accuracy looks competitive, but the damage is
-concentrated on the clinically dangerous classes.%
-}
-
-\paragraph{Wanda: prediction collapse, not discrimination.}
-Wanda's score $|w| \cdot \|x\|_2$ preserves weights that are simultaneously large
-\emph{and} processing high-magnitude activations.  In LLMs, this criterion
-successfully preserves ``outlier features''---rare dimensions whose activations
-carry disproportionate predictive weight.  In our medical ViT setting, the
-situation is different: activation outliers after fine-tuning on an imbalanced
-dataset are not primarily minority-class features; they reflect general dermoscopy
-texture statistics.
-
-The result is that Wanda simultaneously (i) preserves a small set of
-high-activation weights, (ii) removes the surrounding weights that gave the model
-its discriminative margin, and (iii) produces a network that still fires on
-lesions but with poor confidence calibration.  We see this in three concurrent
-signals:
-\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item \textbf{Balanced accuracy collapses} (DeiT-Small: $0.606$ vs.\ magnitude's $0.787$, $p=0.007$)
-\item \textbf{Melanoma AUROC drops below magnitude} ($0.845$ vs.\ $0.879$), showing discrimination is hurt
-\item \textbf{ECE roughly triples} ($0.097$ vs.\ $0.038$), showing the surviving model is overconfident
-\end{enumerate}
-
-The DeiT-Tiny result is particularly instructive.  Wanda on DeiT-Tiny achieves
-melanoma sensitivity $0.925$, which looks excellent.  But balanced accuracy is
-$0.336$, melanoma AUROC is only $0.788$, and ECE is $0.114$.  This is a textbook
-case of \emph{prediction collapse}: the model has shifted its decision surface so
-aggressively that it labels many non-melanoma images as melanoma, inflating
-sensitivity at the cost of specificity.  Random pruning shows the same pathology
-(sensitivity $0.835$, AUROC $0.535$).  Reporting sensitivity alone would conceal
-this.
-
-\keyfinding{Key finding --- Wanda}{%
-Wanda's high minority-class sensitivity at small-model scale reflects prediction
-collapse, not improved discrimination.  The AUROC, balanced accuracy, and ECE
-signals are all consistent with this interpretation.  This is a direct
-demonstration of why clinical evaluation requires multiple metrics, not
-sensitivity alone.%
-}
-
-\paragraph{Taylor: Pareto-optimal in medical vision.}
-Taylor's score $|w \cdot \partial\mathcal{L}/\partial w|$ directly encodes
-\emph{task importance}: weights whose removal would most increase the loss on
-real (class-weighted) training examples are the ones retained.  Because HAM10000
-training uses class-weighted cross-entropy, the gradient already upweights
-dangerous classes, so the Taylor score implicitly inherits class-sensitivity
-information.  This is why Taylor achieves:
-\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item The \good{highest melanoma AUROC} ($0.928$) of any $50\%$-pruned DeiT-Small configuration
-\item The \good{best ECE} ($0.033$, even better than magnitude's $0.038$)
-\item A \good{DCR of $0.80$}---meaning it actually damages \emph{safer} classes more than dangerous ones
-\item Balanced accuracy statistically indistinguishable from magnitude ($0.773$ vs.\ $0.787$)
-\end{itemize}
-
-Taylor is the only criterion that consistently outperforms magnitude on melanoma
-detection across models while maintaining calibration.  Its conceptual simplicity
-(one backward pass on calibration data) makes it a strong practical
-recommendation.
-
-\keyfinding{Key finding --- Taylor}{%
-First-order Taylor pruning is Pareto-optimal for clinical deployment at $50\%$
-sparsity: best AUROC, best calibration, DCR $<1$.  The simple gradient-weighted
-criterion outperforms both magnitude and activation-aware Wanda on the metrics
-that matter clinically.%
-}
-
-\subsection{Mechanism Analysis}\label{sec:mechanism}
-
-We pursued two mechanistic hypotheses for the DCR inversion. The first
-(activation-outlier over-protection) was disconfirmed and is preserved here for
-transparency. The second (gradient-coupling at the layer level) was confirmed
-and gives the paper a falsifiable account of \emph{why} magnitude pruning
-asymmetrically damages dangerous classes.
-
-\subsubsection{Disconfirmed: Activation-Outlier Over-Protection}
-
-We originally hypothesized that Wanda's failure mode in medical vision reflected
-\emph{outlier over-protection}: Wanda would preferentially preserve weights
-adjacent to activation outliers, leaving the surrounding supporting structure
-unpruned, and this effect would be strongest in layers where activations are most
-concentrated.  Under this hypothesis, layer-wise Wanda damage should correlate
-positively with activation kurtosis, top-$k$ concentration, and outlier ratio.
-
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \small
-\caption{Per-layer correlation between activation outlier statistics and
-single-layer Wanda damage on DeiT-Small (seed 0, $n=48$ layers).  All
-correlations are near zero, \emph{disconfirming} our hypothesis.}
-\label{tab:mechanism}
-\begin{tabular}{lccl}
-\toprule
-Activation statistic & Pearson $r$ & Spearman $\rho$ & Criterion\\
-\midrule
-Kurtosis                & $+0.021$ & $+0.105$ & Wanda\\
-Top-$5\%$ concentration & $-0.029$ & $+0.035$ & Wanda\\
-Outlier ratio           & $+0.004$ & $-0.027$ & Wanda\\[2pt]
-Kurtosis                & $-0.070$ & $+0.033$ & Magnitude\\
-Top-$5\%$ concentration & $+0.033$ & $+0.090$ & Magnitude\\
-Outlier ratio           & $-0.033$ & $-0.033$ & Magnitude\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The correlations in Table~\ref{tab:mechanism} are effectively zero.  Our
-activation-outlier hypothesis does not hold.  We report this explicitly rather
-than discarding the analysis; a scientifically useful negative result is worth
-more than a fabricated story. The disconfirmation also rules out the simplest
-explanations of Wanda's calibration and AUROC degradation, motivating the
-class-conditional gradient-flow analysis that follows.
-
-\subsubsection{Confirmed: Per-Layer Gradient-Coupling Drives Magnitude's
-Class-Asymmetric Damage}\label{sec:mechanism-grad}
-
-Our second hypothesis was that magnitude pruning, while ostensibly
-class-agnostic, ends up correlating with task-relevant gradient mass purely
-because high-magnitude weights tend to live in high-gradient layers.  Under
-that hypothesis, the per-layer \emph{pruning rate} chosen by magnitude scoring
-should correlate with the layer's per-class gradient norm
-$\|\partial L_c / \partial W\|_F$, where $c$ ranges over either the dangerous
-class set $\{\mel, \bcc, \akiec\}$ or the safer class set
-$\{\nv, \textit{bkl}, \textit{df}, \textit{vasc}\}$.
-
-We test this on DeiT-Small at $50\%$ sparsity across all five seeds.  For each
-seed, we compute (a) the per-layer pruning rate from the saved magnitude mask,
-and (b) the per-layer per-class gradient Frobenius norm using a fixed
-validation batch with samples restricted to the dangerous (or safer) class
-set.  Correlations are then taken across the $n=48$ pruned linear layers per
-seed.  Table~\ref{tab:gradcoupling} reports the resulting Pearson and Spearman
-coefficients.
-
-\begin{table}[h]
-\centering
-\small
-\caption{Per-layer Pearson correlation between class-conditional gradient
-norm and pruning rate, on DeiT-Small at $50\%$ sparsity, mean across $n{=}5$
-seeds. Per-seed $p$-values are reported in the supplementary CSVs;
-all magnitude entries have $p < 10^{-5}$ and all Taylor entries have
-$p < 0.012$.}
-\label{tab:gradcoupling}
-\begin{tabular}{lcccc}
-\toprule
-Criterion & $r$ (dangerous) & $r$ (safe) & Spearman $\rho$ (dangerous) &
-Spearman $\rho$ (safe)\\
-\midrule
-\good{Magnitude} & $+0.625$ & $+0.738$ & $+0.522$ & $+0.682$\\
-\good{Wanda}     & $-0.066$ & $+0.110$ & $-0.077$ & $+0.107$\\
-\good{Taylor}    & $-0.408$ & $-0.414$ & $-0.314$ & $-0.378$\\
-Random           & $-0.027$ & $-0.030$ & $\sim 0$ & $\sim 0$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The pattern is sharp and consistent across seeds.
-
-\textbf{Magnitude} prunes \emph{more} in layers that carry \emph{more}
-class-relevant gradient mass ($r \approx 0.62$ for dangerous classes,
-$r \approx 0.74$ for safer classes; $p < 10^{-5}$ in every seed).  This
-positive coupling is mechanism-level evidence that magnitude scoring, while
-formally indifferent to class identity, ends up systematically attacking the
-representation layers that matter most for classification.  Because dangerous
-classes carry comparable gradient mass per sample to safer classes despite
-being far less frequent, the per-sample damage to dangerous classes is
-proportionally larger---producing $\DCR > 1$.
-
-\textbf{Wanda} is uncorrelated with gradient mass ($|r| < 0.20$ across all
-seeds, all $p > 0.13$).  This rules out gradient-coupling as Wanda's failure
-mode and is consistent with the calibration evidence presented earlier:
-Wanda's failure is not in attention or feature allocation but in the classifier
-head.  Quantitative attention-mask evidence for that claim
-follows in \S\ref{sec:attention-iou}.
-
-\textbf{Taylor} is \emph{negatively} correlated with gradient mass
-($r \approx -0.41$ for both dangerous and safer classes, $p < 0.012$).  Taylor
-explicitly preserves gradient-rich layers because its scoring incorporates
-$|w \cdot \partial L / \partial w|$, and the result is the cleanest clinical
-performance among the four criteria---providing convergent evidence that
-gradient-coupling is the right axis on which to rank pruning criteria for
-medical compression.
-
-\keyfinding{Key finding --- mechanism}{%
-Magnitude pruning's class-asymmetric damage is driven by per-layer
-gradient-coupling: pruning rate is positively correlated with both
-dangerous-class and safer-class gradient norms ($r \approx 0.6$--$0.7$,
-$p < 10^{-5}$).  Wanda is uncorrelated with gradient mass; Taylor is
-negatively correlated.  The $\DCR$ inversion thus reflects two distinct
-mechanisms---gradient-coupling for magnitude, head-collapse for Wanda---and
-Taylor's superiority arises from explicit gradient-preservation.%
-}
-
-\subsection{Quantitative Attention--Mask Overlap}\label{sec:attention-iou}
-
-To test whether Wanda's failure is in attention allocation or downstream of
-it, we compute attention rollout for each pruned model, threshold it at the
-adaptive (mean $+$ std) level, and measure overlap against per-image lesion
-segmentation masks from the Tschandl HAM10000 segmentation
-release~\cite{tschandl2018ham10000-seg}. We report mean intersection-over-union
-(IoU) and pointing-game accuracy across the dangerous validation samples
-($n = 189$--$243$ per seed depending on the lesion-grouped split, evaluated
-across $n{=}5$ seeds).
-
-\begin{table}[h]
-\centering
-\small
-\caption{Attention--mask overlap on DeiT-Small at $50\%$ sparsity, mean $\pm$
-std across $n{=}5$ seeds.  Higher is better.  Wanda's attention is
-\emph{better} localized than magnitude's---and matches or exceeds the dense
-baseline---despite Wanda's collapsed balanced accuracy.}
-\label{tab:attention-iou}
+\caption{Attention--mask overlap on DeiT-Small at 50\% sparsity, mean $\pm$ std across the available multi-seed analysis. Higher is better. Wanda's attention is slightly better localized than magnitude's and slightly above the dense baseline, which means its failure is downstream of attention.}
+\label{tab:attention}
 \begin{tabular}{lcc}
 \toprule
-Condition  & Mean IoU       & Pointing-game accuracy\\
+Condition & Mean IoU & Pointing-game accuracy \\
 \midrule
-Dense      & $0.422 \pm 0.020$ & $0.897 \pm 0.017$\\
-Magnitude  & $0.408 \pm 0.021$ & $0.847 \pm 0.007$\\
-Taylor     & $0.426 \pm 0.018$ & $0.898 \pm 0.015$\\
-\good{Wanda} & \good{$0.434 \pm 0.021$} & \good{$0.914 \pm 0.008$}\\
+Dense     & $0.422 \pm 0.020$ & $0.897 \pm 0.017$ \\
+Magnitude & $0.408 \pm 0.021$ & $0.847 \pm 0.007$ \\
+Taylor    & $0.426 \pm 0.018$ & $0.898 \pm 0.015$ \\
+Wanda     & $0.434 \pm 0.021$ & $0.914 \pm 0.008$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The result is the opposite of what one would expect from a model that has
-``forgotten how to attend to lesions''.  Wanda's attention IoU and
-pointing-game accuracy are not just preserved relative to the dense baseline;
-they are slightly higher.  Magnitude's attention, in contrast, is
-measurably worse: $5$ percentage points less pointing-game accuracy than
-Wanda or the dense model, and visibly lower IoU.
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{../results/figures_local/fig8_attention_maps.pdf}
+\caption{Attention rollout visualizations for Dense, Magnitude 50\%, Wanda 50\%, and Taylor 50\%. The qualitative pattern is consistent with Table~\ref{tab:attention}: Wanda does not lose lesion localization. Its problem is the downstream classifier behavior, not the ability to attend to the lesion region.}
+\label{fig:attention_maps}
+\end{figure*}
 
-This is consistent with the gradient-coupling mechanism in
-\S\ref{sec:mechanism-grad}: magnitude pruning damages high-gradient layers
-that include early feature extractors, and the resulting attention is more
-diffuse.  Wanda preserves these layers (its activation-aware scoring keeps
-them lightly pruned), so attention localization is intact---but the
-\emph{classifier head} downstream of attention has collapsed under Wanda's
-imbalance-amplifying scoring, producing high melanoma sensitivity through
-constant prediction rather than improved discrimination.
+This matters because it changes what a biomedical team should try to fix. If a compressed model fails because attention maps miss the lesion, then the intervention is architectural or optimization-based. If the model still attends to the lesion but collapses at the classifier head, then the fix is calibration-aware retraining or a different pruning criterion. Our results point to the latter.
 
-\keyfinding{Key finding --- attention}{%
-Wanda's pruned attention overlaps the lesion mask \emph{better} than
-magnitude's and matches the dense baseline. The Wanda failure is downstream of
-attention---at the classifier head---not in feature localization. The earlier
-qualitative claim that Wanda diffuses attention across the image was an
-artifact of the small qualitative sample; the quantitative IoU at $n{=}5$
-seeds shows the opposite.%
-}
+\subsection{Sparsity placement and external baselines}
+The local exploratory figures and the aggregated non-uniform table tell the same story: where a model is pruned can matter more than the exact score used to rank weights. Sensitivity-guided non-uniform allocation can rescue Wanda, but not every policy helps. In particular, the best Wanda rescue is not the default binned policy alone; the more aggressive binned\_k5 setting reaches balanced accuracy of $0.857$ and melanoma sensitivity of $0.741$, while the learnable policy reaches $0.871$ balanced accuracy but with a higher \DCR{}. The continuous-temperature policies are less stable and should not be the first choice if the goal is a safe clinical default.
 
-\subsection{Sparsity Placement: Where Matters More Than How}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_local/fig4_nonuniform_vs_uniform.pdf}
+\caption{Sensitivity-guided non-uniform pruning from the exploratory run. The rescue is obvious for Wanda: redistributing sparsity by layer sensitivity restores a large fraction of the lost class recall. The same idea does not help magnitude nearly as much, which suggests the scoring rule and the sparsity allocation rule should be evaluated together.}
+\label{fig:nonuniform}
+\end{figure}
 
-Uniform sparsity allocation is not optimal.  When we apply
-\emph{sensitivity-guided non-uniform allocation}---estimating per-layer
-sensitivity by pruning each layer in isolation at $50\%$, sorting into
-sensitivity-ranked bins, and allocating $\{0.30, 0.50, 0.70\}$ sparsity to the
-most- to least-sensitive thirds, rescaled to a target average of $0.50$---Wanda's
-performance substantially recovers.  Uniform Wanda achieves balanced accuracy
-$0.606$; non-uniform Wanda reaches approximately $0.80$ at the same global
-sparsity.  Magnitude, in contrast, does not benefit from the same policy: it
-appears to already allocate damage near-optimally under global scoring.
+External baselines reinforce the main ordering. Paxton-style skewness pruning and X-Pruner are both useful references, but they do not overturn the core finding that Taylor is the best sparse default and that magnitude is not the safest choice for biomedical deployment. X-Pruner is the strongest external 50\% baseline on DeiT-Small if one only looks at balanced accuracy, but Taylor still gives the better melanoma-sensitivity/calibration blend. SparseGPT-pseudo is the clearest poor fit for this medical task. We summarize the detailed non-uniform and baseline results in the appendix because they are valuable implementation guidance but not the main claim of the paper.
 
-This finding supports a broader claim: \emph{where a model is pruned matters more
-than how individual weights are scored}.  Four allocation policies were tested
-(binned, continuous temperature-scaled, OBS-like, and a learnable straight-through
-top-$k$); the simple binned scheme performed comparably to more sophisticated
-alternatives, suggesting the bulk of the gain comes from separating sensitive
-from insensitive layers, not from fine-grained allocation optimization.
+\subsection{Quantization, distillation, and the deployment story}
+The deployment message is straightforward: start with INT8 quantization, then decide whether sparsity is necessary. Quantization changes the size of the model without changing the structure of the learned function, so it is the least risky compression stage. By contrast, pruning changes which learned connections survive, so the choice of pruning criterion matters.
 
-\subsection{Baselines from the Literature}
+Knowledge distillation is not a substitute for sparse robustness. In the auxiliary experiments, distillation improved the dense student in some runs, but the pruned distilled student was not reliably better than the directly fine-tuned one. That is the important lesson for biomedical deployment: a better dense baseline does not automatically produce a better compressed model.
 
-Against Paxton skewness-guided pruning, X-Pruner, and our
-SparseGPT-diagonal approximation, the Taylor and magnitude criteria remain
-competitive or superior on DCR and AUROC at matched sparsity.  Skewness-guided
-pruning, originally designed for demographic fairness, does not automatically
-translate into class-wise clinical safety on HAM10000.
+Under the conservative clinical thresholds in the log companion files, every evaluated pipeline remains \texttt{academic\_only}. That is not a failure of the paper; it is the honest biomedical reading. The current experiments are strong enough to rank compression choices, but not strong enough to claim unsupervised clinical readiness. On the same host, dense DeiT-Tiny runs at 11.61 ms on CPU and 2.57 ms on MPS, while dense DeiT-Small in the quantization run measures 20.3 ms mean latency and 22.0 ms at p95. Those numbers are the right scale for an edge deployment discussion: they show that the host is fast enough for interactive use, but they do not change the ranking that makes INT8 the safest first size reduction.
 
-% =====================================================================
-\section{Compression Family II: Quantization}
-
-\subsection{Setup}
-We apply dynamic INT8 post-training quantization \cite{jacob2018quantization} to
-the dense fine-tuned model and to the best $50\%$-pruned configurations for each
-criterion, and measure on-disk size and CPU inference latency.
-
-\subsection{Results and Interpretation}
-
-\begin{table}[h]
+\begin{table*}[t]
 \centering
 \small
-\caption{INT8 quantization stacking on DeiT-Small.  Latency measured on the
-experiment host CPU.}
+\caption{Selected deployment summary from the multi-seed personal quantization run. Quantization preserves the dense behavior closely, but the pruning criterion still determines the downstream clinical tradeoff. Size is reported because it is the primary deployment win; latency is backend-dependent and therefore discussed separately in the appendix.}
 \label{tab:quant}
-\begin{tabular}{lcccc}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccc}
 \toprule
-Configuration & Bal.\ Acc. & Mel.\ Sens. & Size (MB) & Latency (ms)\\
+Configuration & Bal.\ Acc. & Mel.\ Sens. & Mel.\ AUROC & ECE & Size (MB) \\
 \midrule
-Dense (FP32)                       & $0.882$ & $0.897$ & $84.7$ & $22.27$\\
-Dense + INT8                       & $0.882$ & $0.897$ & $22.5$ & $15.72$\\
-Magnitude-pruned + INT8            & $0.777$ & $0.583$ & $22.5$ & $15.86$\\
-Wanda-pruned + INT8                & $0.596$ & $0.561$ & $22.5$ & $15.90$\\
-Taylor-pruned + INT8               & $0.766$ & $0.861$ & $22.5$ & $15.89$\\
+Dense                & $0.849 \pm 0.069$ & $0.864 \pm 0.077$ & $0.947 \pm 0.026$ & $0.038 \pm 0.015$ & $84.7$ \\
+Quantized only       & $0.867 \pm 0.072$ & $0.890 \pm 0.077$ & $0.956 \pm 0.024$ & $0.031 \pm 0.017$ & $22.5$ \\
+Magnitude 50\%       & $0.775 \pm 0.060$ & $0.585 \pm 0.057$ & $0.877 \pm 0.024$ & $0.038 \pm 0.006$ & $43.2$ \\
+Magnitude 50\% + INT8 & $0.770 \pm 0.061$ & $0.611 \pm 0.073$ & $0.874 \pm 0.024$ & $0.038 \pm 0.008$ & $22.5$ \\
+Wanda 50\%           & $0.602 \pm 0.011$ & $0.566 \pm 0.018$ & $0.845 \pm 0.013$ & $0.095 \pm 0.007$ & $43.2$ \\
+Wanda 50\% + INT8    & $0.599 \pm 0.012$ & $0.555 \pm 0.023$ & $0.841 \pm 0.012$ & $0.090 \pm 0.007$ & $22.5$ \\
 \bottomrule
-\end{tabular}
-\end{table}
+\end{tabular}}
+\end{table*}
 
-\paragraph{Why quantization is the safest compression lever.}
-INT8 quantization reduces numerical precision but \emph{preserves the full weight
-topology}---every learned connection remains, only with coarser resolution.  For
-vision models at scale, the information-theoretic cost of quantization is small:
-neural networks are heavily overparameterized in precision, and per-tensor or
-per-channel scaling recovers most of the representational capacity.  This is
-visible in our results: the dense INT8 model is clinically
-\emph{indistinguishable} from the FP32 dense model on all metrics while being
-$3.8\times$ smaller and $\sim 30\%$ faster.
+Table~\ref{tab:quant} is the practical deployment answer for teams that need a smaller model quickly. INT8 gives the big size win. Taylor remains the better sparse choice. Wanda can be made acceptable only when recall is the overriding goal and calibration is re-checked afterwards.
 
-Stacking quantization on top of pruning adds a small additional degradation, but
-the additional loss is dominated by the pruning step.  The practical lesson: if a
-deployment budget permits only one compression operation, quantization is the
-least clinically risky choice.  Pruning should be applied \emph{before}
-quantization with clinical metrics as the selection criterion, and the pruning
-criterion should be Taylor rather than magnitude or Wanda.
+\section{Discussion and Practical Guidance}
+The main lesson is that biomedical compression should be judged by clinical behavior, not by aggregate accuracy alone. Three practical implications follow.
 
-\keyfinding{Key finding --- quantization}{%
-INT8 quantization delivers $3.8\times$ size reduction and $\sim 30\%$ latency
-improvement with no measurable clinical degradation.  Unlike pruning, it
-preserves weight topology and degrades uniformly.  It is the correct first stage
-of any medical compression pipeline.%
-}
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+  \item \textbf{Use lesion-grouped splits.} Image-level splitting is too optimistic for dermoscopy because the same lesion can appear multiple times.
+  \item \textbf{Report the full safety tuple.} Balanced accuracy, melanoma AUROC, ECE, and \DCR{} should be interpreted together. Sensitivity alone is not enough.
+  \item \textbf{Start with INT8, then choose sparsity.} Quantization is the lowest-risk compression stage. If sparsity is required, Taylor is the safest default in this study.
+  \item \textbf{Treat Wanda non-uniformly.} Wanda can be rescued by non-uniform sparsity, but that makes it a recall-first option, not a universal improvement.
+  \item \textbf{Do not assume distillation fixes pruning.} A stronger dense student is not automatically a more pruning-robust student.
+  \item \textbf{Validate on the target device.} Latency, calibration, and operating points should be measured on the actual deployment runtime, not assumed from parameter count.
+  \item \textbf{Treat the current pipelines as research-only.} Under the conservative clinical thresholds used here, every evaluated configuration remains \texttt{academic\_only}; that is the right interpretation for this study.
+\end{itemize}
 
-\paragraph{Why binarization is not recommended here.}
-Extreme quantization---binary or ternary weights---trades precision for even
-greater efficiency gains.  We did not pursue binarization in this study for two
-reasons.  First, binary ViTs are still an active research area and typically
-require quantization-aware training from scratch, not post-training
-binarization.  Second, our clinical-threshold analysis suggests that even $4$-bit
-precision would risk pushing dense performance below deployment thresholds, and
-our INT8 results already capture the bulk of the practical efficiency gain.  We
-flag binary/ternary medical ViTs as promising future work.
+From a biomedical integration standpoint, the recommendation is conservative but usable: if you can afford only one compression step, use INT8. If you need sparsity, use Taylor and validate the operating point that matters clinically. If you are tempted to use activation-aware Wanda because it looks recall-friendly, check calibration and false positives before you ship.
 
-% =====================================================================
-\section{Compression Family III: Knowledge Distillation}
-
-\subsection{Setup}
-We distill DeiT-Small into DeiT-Tiny using standard soft-target KL-divergence
-distillation with temperature $T=4$ and mixing coefficient $\alpha=0.7$
-\cite{hinton2015distilling}.  We compare three DeiT-Tiny variants:
-(a)~directly fine-tuned on HAM10000, (b)~distilled from a DeiT-Small teacher,
-and (c)~ImageNet-only pretrained without HAM10000 fine-tuning.  Each is evaluated
-both dense and after Wanda pruning at $50\%$ sparsity.
-
-\subsection{Results and Interpretation}
-
-\begin{table}[h]
-\centering
-\small
-\caption{Knowledge distillation pre-treatment on DeiT-Tiny.  Distillation improves
-dense performance but \emph{does not} produce pruning-robust features.}
-\label{tab:distill}
-\begin{tabular}{llcc}
-\toprule
-Variant & Pruned? & Bal.\ Acc. & Mel.\ Sens.\\
-\midrule
-Directly fine-tuned & No  & $0.876$ & $0.837$\\
-Directly fine-tuned & Yes & $0.336$ & $0.925$\\
-Distilled           & No  & \good{$0.889$} & $0.850$\\
-Distilled           & Yes & \danger{$0.280$} & $0.881$\\
-ImageNet-only       & No  & $0.174$ & $0.049$\\
-ImageNet-only       & Yes & $0.148$ & $0.045$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Why distillation helps dense but not sparse performance.}
-Distillation works by teaching the student to match the teacher's softened output
-distribution.  This regularization effect is known to improve generalization in
-dense models, and our dense distilled Tiny confirms this: it outperforms the
-directly fine-tuned Tiny by roughly $1.3$ points in balanced accuracy.  However,
-distillation does this by encouraging the student to \emph{concentrate} its
-predictive information into features that match the teacher's decision
-structure---a form of information packing.
-
-When we then apply unstructured pruning, this packed structure is brittle.
-Removing a random $50\%$ of weights from a distilled network disrupts the
-carefully compressed teacher-student mapping more severely than it disrupts a
-directly fine-tuned network that distributed information more broadly.  The
-result is that distilled + pruned under-performs directly-fine-tuned + pruned,
-even though distilled + dense outperforms directly-fine-tuned + dense.
-
-The ImageNet-only control confirms that HAM10000-specific fine-tuning is
-essential; dense ImageNet features do not transfer zero-shot to dermoscopy.
-
-\keyfinding{Key finding --- distillation}{%
-Knowledge distillation improves dense performance but does not produce
-pruning-robust features.  Distillation should not be treated as a drop-in
-pre-treatment before pruning; it may need to be coupled with sparsity-aware
-training, such as distillation on an already-masked student.%
-}
-
-\paragraph{Implication for pipeline design.}
-Distillation is most useful when the deployment target is \emph{dense + quantized}
-rather than pruned.  For sparse deployment, directly fine-tuning the small model
-and applying Taylor pruning is the better pipeline.
-
-% =====================================================================
-\section{End-to-End Deployment Pipeline}
-
-\begin{table}[h]
-\centering
-\small
-\caption{End-to-end deployment comparison on DeiT-Small.  Clinical regime reflects
-the most stringent gate each configuration satisfies (thresholds in
-\S\ref{sec:clinical}).  Configurations are ranked by joint AUROC + ECE performance.}
-\label{tab:pipeline}
-\begin{tabular}{lcccc}
-\toprule
-Pipeline & Mel.\ AUROC & ECE & Size (MB) & Regime\\
-\midrule
-Dense FP32                                     & $0.959$ & $0.031$ & $84.7$ & specialist ref.\\
-Dense + INT8                                   & $0.959$ & $0.031$ & $22.5$ & specialist ref.\\
-Taylor pruned + INT8                           & \good{$0.928$} & \good{$0.033$} & $22.5$ & \good{specialist ref.}\\
-Magnitude pruned + INT8                        & $0.879$ & $0.038$ & $22.5$ & triage\\
-Wanda pruned + INT8                            & $0.845$ & $0.097$ & $22.5$ & academic\\
-Wanda + non-uniform + INT8                     & $\sim 0.89$  & $\sim 0.05$ & $22.5$ & triage\\
-Distilled Tiny + INT8                          & $0.921$ & $\sim 0.04$ & $\sim 5.6$ & triage\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The strongest practical pipeline is \textbf{Taylor pruning at $50\%$ sparsity
-followed by INT8 quantization}, achieving $3.8\times$ compression while remaining
-within the specialist-referral clinical regime.  This combination has been absent
-from prior compression comparisons because Taylor is rarely reported alongside
-modern activation-aware methods.
-
-\section{Clinical Thresholds}\label{sec:clinical}
-
-We classify each configuration into one of four regimes based on melanoma
-sensitivity, specificity, and balanced accuracy:
-\emph{triage\_screen} (sensitivity $\geq 0.50$, specificity $\geq 0.50$),
-\emph{specialist\_referral} (sens.\ $\geq 0.75$, spec.\ $\geq 0.70$),
-\emph{primary\_diagnosis} (sens.\ $\geq 0.85$, spec.\ $\geq 0.80$), and
-\emph{academic\_only} otherwise.  Thresholds are approximate anchors derived
-from published comparisons of dermatologist and AI melanoma-detection
-performance and are not prescriptive.  The important observation is relative:
-under any reasonable threshold choice, the Taylor + INT8 pipeline is the only
-compressed configuration that retains specialist-referral-grade performance.
-
-% =====================================================================
-\section{Takeaways}
-
-\subsection{Primary Findings}
-
-\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
-\item \good{Magnitude pruning forgets dangerous classes first.}  DCR $=2.15$ on
-DeiT-Small.  Aggregate balanced accuracy hides this asymmetry.
-\item \good{Taylor pruning is Pareto-optimal for clinical deployment.}  Highest
-melanoma AUROC ($0.928$), best calibration (ECE $=0.033$), DCR $<1$.
-\item \good{Wanda exhibits prediction collapse, not improved discrimination.}
-Minority-class sensitivity rises while AUROC falls and calibration degrades
-$3\times$.
-\item \good{Melanoma sensitivity alone is diagnostically uninformative.}
-AUROC + ECE + DCR are required to disambiguate genuine improvement from
-prediction collapse.
-\item \good{INT8 quantization is the safest compression lever.}  $3.8\times$
-size, $\sim 30\%$ latency improvement, no measurable clinical degradation.
-\item \good{Knowledge distillation helps dense, hurts sparse.}  Distilled
-features are \emph{less} pruning-robust than directly fine-tuned ones.
-\item \good{Sparsity placement $>$ scoring sophistication.}  Non-uniform
-allocation rescues Wanda; magnitude is already near-optimally allocated under
-global scoring.
-\item \good{Our activation-outlier mechanism did not hold.}  Layer-wise
-correlations between outlier statistics and Wanda damage are near zero.  The
-mechanism remains open.
-\end{enumerate}
-
-\subsection{Per-Compression-Family Summary}
-
-\paragraph{Pruning \& sparsity.}
-The most consequential choice in medical compression.  Magnitude is
-clinically dangerous.  Taylor is Pareto-optimal.  Wanda's behavior is architecture-
-and scale-dependent and requires AUROC + ECE to evaluate honestly.  Non-uniform
-allocation helps activation-aware methods but not magnitude.  Was it helpful?
-Yes---revealing that the ``default'' criterion is the worst clinical choice is
-the single most important practical insight of this paper.
-
-\paragraph{Quantization \& binarization.}
-INT8 quantization is the safest and most effective single compression stage.
-Weight topology is preserved, precision loss is information-theoretically small,
-and all clinical metrics remain intact.  We did not test binarization; extreme
-quantization likely requires quantization-aware training and is a promising but
-separate investigation.  Was it helpful?  Unambiguously yes---$3.8\times$
-compression with zero measurable clinical cost.
-
-\paragraph{Knowledge distillation.}
-Improves dense Tiny performance but does not transfer pruning-robustness.  Best
-used when the target is dense + quantized, not sparse.  Was it helpful? Partially.
-Distillation is useful as a standalone step before quantization, but should not
-be treated as a free pre-treatment before pruning.
-
-% =====================================================================
 \section{Limitations}
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=2pt]
+  \item The core claim is established on one dataset and one modality. HAM10000 is a strong case study, not a universal law.
+  \item Some auxiliary experiments are exploratory follow-ups from the local run. They are useful for implementation guidance, but they are not the basis of the main pruning claim.
+  \item The recovery and calibration follow-ups are informative but not decisive. They show how little the ranking changes under these extra knobs, which is itself a useful deployment lesson.
+  \item The paper does not make a second-cohort generalization claim. That would need a separate study.
+\end{itemize}
 
-\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item Cell-level metrics are reported across $n{=}4$ seeds; paired tests are
-reported across the $n{=}3$ seeds that have full pillar coverage. The original
-target was $n{=}10$, but cluster wall-time capped completion at this depth
-within the submission window.  Headline effects (DCR inversion, Wanda
-prediction collapse, gradient-coupling correlations) are large enough that
-$n{=}4$/$3$ delivers $p < 0.005$ on the primary paired comparisons; small
-differences (e.g., magnitude vs.~Taylor balanced accuracy on DeiT-Small) remain
-within confidence bounds.
-\item We evaluate on a single modality (dermoscopy) and a single dataset
-(HAM10000).  An ISIC~2019 cross-cohort replication and the corresponding
-metadata builder are staged in the codebase but were not run within the
-submission window; cross-cohort generalisation remains future work.
-\item The MobileNetV2 CNN baseline is included as an exploratory architecture
-check; depthwise-separable convolutions are known to be atypical under
-unstructured pruning, and the ResNet-50 baseline was dropped from the compute
-budget.
-\item Attention--mask overlap (\S\ref{sec:attention-iou}) is now quantitative,
-based on the Tschandl HAM10000 segmentation release across $n{=}5$ seeds and
-$\sim 230$ dangerous-class validation samples per seed.  An earlier draft of
-this paper described the attention analysis as qualitative only; that
-limitation has been retired.
-\item The mechanism behind magnitude's class-asymmetric damage is now
-characterised (gradient-coupling, \S\ref{sec:mechanism-grad}): per-layer
-pruning rate is positively correlated with per-class gradient mass for both
-dangerous and safer classes ($r \approx 0.62$ and $0.74$, $p < 10^{-5}$).
-Wanda's mechanism is independently characterised as classifier-head collapse
-with attention preserved (\S\ref{sec:attention-iou}). An earlier
-activation-outlier hypothesis was disconfirmed and is preserved in
-\S\ref{sec:mechanism} for transparency.
-\item Clinical thresholds are approximate anchors, not regulatory boundaries.
-\end{enumerate}
-
-% =====================================================================
 \section{Conclusion}
+Compression in biomedical vision is not only a size problem. It is a safety problem. On HAM10000, the failure mode depends on how the model is compressed: magnitude pruning is the least safe baseline, Wanda can look good on sensitivity while degrading calibration and discrimination, and Taylor is the strongest sparse default in the present study. INT8 quantization is the safest first compression stage, and the auxiliary experiments show that recovery, distillation, and calibration size tweaks do not overturn the basic ranking.
 
-Compression in medical AI should not be evaluated by aggregate accuracy.  Our
-multi-seed, patient-split, clinically instrumented comparison of pruning,
-quantization, and distillation on medical Vision Transformers shows that
-aggregate metrics systematically hide class-asymmetric failures.  The
-Dangerous-Class Degradation Ratio, combined with AUROC and ECE, exposes three
-distinct failure modes: magnitude's differential forgetting of dangerous classes,
-Wanda's prediction collapse masquerading as high sensitivity, and distillation's
-failure to transfer pruning-robustness.
+The practical result is a deployment recipe, not a new algorithm: use lesion-grouped splits, report clinical metrics together, start with INT8, and use Taylor when you need sparsity. That is a more useful answer for biomedical integration than novelty alone.
 
-The Pareto-optimal pipeline for clinical deployment in our study---\emph{Taylor
-pruning at $50\%$ sparsity followed by INT8 quantization}---achieves
-$3.8\times$ compression while remaining within specialist-referral-grade
-clinical performance.  This combination has been overlooked in prior work
-because Taylor is rarely compared alongside modern activation-aware methods.
-We recommend that future compression studies in medical imaging adopt the
-DCR~$+$~AUROC~$+$~ECE triplet as a minimal evaluation protocol.
+\appendix
+\section{Layer-Wise Mechanism and Negative Results}
+The per-layer analysis in Figure~\ref{fig:perlayer} is useful because it points to the layers that matter most for diagnostic behavior. The local exploratory run shows that the MLP blocks are the most damage-sensitive components, while patch embedding is comparatively stable. This matches the intuition that the model's class-conditional behavior lives in the middle and late transformer blocks rather than in the very first projection.
 
-% =====================================================================
-\begin{thebibliography}{99}
-\footnotesize
+We also checked an activation-outlier hypothesis: the idea that Wanda's behavior could be explained by a simple relationship between heavy-tailed activation statistics and the damage induced by pruning. The project summary reports that those correlations are near zero. That is a negative result, but it is valuable because it rules out the most obvious story and prevents us from overfitting a false mechanism.
 
-\bibitem{han2015deep}
-S.~Han, J.~Pool, J.~Tran, and W.~Dally.
-\newblock Learning both weights and connections for efficient neural networks.
-\newblock In \emph{NeurIPS}, 2015.
+\section{Non-Uniform Allocation and External Baselines}
+Table~\ref{tab:nonuniform} shows the non-uniform allocation results from the multi-seed personal aggregate. The core pattern is simple: binned non-uniform sparsity can rescue Wanda, while a continuous-temperature rule is much less stable. The point is not that a cleverer allocation policy always wins. The point is that sparsity placement interacts with the pruning criterion.
 
-\bibitem{molchanov2017pruning}
-P.~Molchanov, S.~Tyree, T.~Karras, T.~Aila, and J.~Kautz.
-\newblock Pruning convolutional neural networks for resource efficient inference.
-\newblock In \emph{ICLR}, 2017.
+\begin{table*}[t]
+\centering
+\small
+\caption{Non-uniform allocation on DeiT-Small at 50\% average sparsity. The binned policy is the one that most clearly rescues Wanda; the continuous policy is less stable.}
+\label{tab:nonuniform}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lllccc}
+\toprule
+Criterion & Policy & Bal.\ Acc. & Mel.\ Sens. & Mel.\ AUROC & \DCR \\
+\midrule
+Magnitude & uniform         & $0.787 \pm 0.025$ & $0.569 \pm 0.053$ & $0.881 \pm 0.019$ & $1.87 \pm 0.42$ \\
+Magnitude & binned\_default & $0.758 \pm 0.047$ & $0.452 \pm 0.064$ & $0.858 \pm 0.034$ & $2.50 \pm 0.87$ \\
+Magnitude & continuous\_t1  & $0.652 \pm 0.120$ & $0.240 \pm 0.119$ & $0.793 \pm 0.047$ & $2.14 \pm 1.35$ \\
+Wanda     & uniform         & $0.612 \pm 0.018$ & $0.539 \pm 0.041$ & $0.837 \pm 0.019$ & $0.77 \pm 0.09$ \\
+Wanda     & binned\_default & $0.841 \pm 0.036$ & $0.727 \pm 0.068$ & $0.918 \pm 0.012$ & $2.62 \pm 0.61$ \\
+Wanda     & continuous\_t1  & $0.755 \pm 0.075$ & $0.579 \pm 0.110$ & $0.891 \pm 0.045$ & $2.58 \pm 3.26$ \\
+\bottomrule
+\end{tabular}}
+\end{table*}
 
-\bibitem{sun2024wanda}
-M.~Sun, Z.~Liu, A.~Bair, and J.~Z. Kolter.
-\newblock A simple and effective pruning approach for large language models.
-\newblock In \emph{ICLR}, 2024.
+The external baseline zoo is useful mostly because it anchors the main ranking. Paxton-style skewness pruning and X-Pruner are both reasonable comparators, but neither overturns the main result that Taylor is the strongest sparse default in this study.
 
-\bibitem{jacob2018quantization}
-B.~Jacob et~al.
-\newblock Quantization and training of neural networks for efficient
-  integer-arithmetic-only inference.
-\newblock In \emph{CVPR}, 2018.
+\begin{table}[t]
+\centering
+\small
+\caption{External pruning baselines on the multi-seed aggregate. The values are useful as anchors, but they do not change the main ranking.}
+\label{tab:baselines}
+\begin{tabular}{llccc}
+\toprule
+Model & Method & Bal.\ Acc. & Mel.\ Sens. & \DCR \\
+\midrule
+\multirow{3}{*}{DeiT-Small}
+ & Paxton (50\%)  & 0.631 & 0.388 & 1.46 \\
+ & X-Pruner (50\%) & 0.747 & 0.746 & 1.58 \\
+ & SparseGPT (50\%) & 0.208 & 0.000 & 1.14 \\
+\midrule
+\multirow{3}{*}{DeiT-Tiny}
+ & Paxton (50\%)  & 0.616 & 0.529 & 1.23 \\
+ & X-Pruner (50\%) & 0.644 & 0.750 & 0.34 \\
+ & SparseGPT (50\%) & 0.227 & 0.067 & 0.85 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\bibitem{gholami2021survey}
-A.~Gholami, S.~Kim, Z.~Dong, Z.~Yao, M.~W. Mahoney, and K.~Keutzer.
-\newblock A survey of quantization methods for efficient neural network
-  inference.
-\newblock \emph{arXiv:2103.13630}, 2021.
+\section{Quantization, Distillation, and Edge Deployment}
+The quantization story is simple: INT8 preserves the dense model's clinical behavior closely while cutting size by roughly 3.8$\times$. The stack results show that pruning, not quantization, is the dominant source of degradation. That makes quantization the safest first compression stage.
 
-\bibitem{hinton2015distilling}
-G.~Hinton, O.~Vinyals, and J.~Dean.
-\newblock Distilling the knowledge in a neural network.
-\newblock \emph{arXiv:1503.02531}, 2015.
+\begin{table*}[t]
+\centering
+\small
+\caption{Selected quantization-stacking results from the personal multi-seed runs. Quantization is the safest size reduction, but pruning still controls the clinical tradeoff. Latency is backend-dependent and therefore not the main recommendation signal.}
+\label{tab:stacking}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+Configuration & Bal.\ Acc. & Mel.\ Sens. & Mel.\ AUROC & Macro AUROC & ECE & Size (MB) \\
+\midrule
+Dense                & $0.849 \pm 0.069$ & $0.864 \pm 0.077$ & $0.947 \pm 0.026$ & $0.971 \pm 0.018$ & $0.038 \pm 0.015$ & $84.7$ \\
+Quantized only       & $0.867 \pm 0.072$ & $0.890 \pm 0.077$ & $0.956 \pm 0.024$ & $0.977 \pm 0.016$ & $0.031 \pm 0.017$ & $22.5$ \\
+Magnitude 50\%       & $0.775 \pm 0.060$ & $0.585 \pm 0.057$ & $0.877 \pm 0.024$ & $0.954 \pm 0.015$ & $0.038 \pm 0.006$ & $43.2$ \\
+Magnitude 50\% + INT8 & $0.770 \pm 0.061$ & $0.611 \pm 0.073$ & $0.874 \pm 0.024$ & $0.953 \pm 0.016$ & $0.038 \pm 0.008$ & $22.5$ \\
+Wanda 50\%           & $0.602 \pm 0.011$ & $0.566 \pm 0.018$ & $0.845 \pm 0.013$ & $0.918 \pm 0.009$ & $0.095 \pm 0.007$ & $43.2$ \\
+Wanda 50\% + INT8    & $0.599 \pm 0.012$ & $0.555 \pm 0.023$ & $0.841 \pm 0.012$ & $0.917 \pm 0.009$ & $0.090 \pm 0.007$ & $22.5$ \\
+\bottomrule
+\end{tabular}}
+\end{table*}
 
-\bibitem{touvron2021deit}
-H.~Touvron, M.~Cord, M.~Douze, F.~Massa, A.~Sablayrolles, and H.~J{\'e}gou.
-\newblock Training data-efficient image transformers \& distillation through
-  attention.
-\newblock In \emph{ICML}, 2021.
+Figure~\ref{fig:stacking_perclass} makes the point at the per-class level: the ``pruned only'' and ``pruned plus quantized'' bars are nearly identical for every class, while both differ substantially from the dense reference. INT8 does not perturb the per-class sensitivity profile that pruning has already set.
 
-\bibitem{paxton2025skewness}
-K.~Paxton, J.-y.~Norimatsu, et~al.
-\newblock Enhancing fairness in skin lesion classification for medical
-  diagnosis using prune learning.
-\newblock \emph{arXiv:2509.00745}, 2025.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_local/fig5_stacking.pdf}
+\caption{Per-class sensitivity for dense, pruned, and pruned plus INT8 quantized DeiT-Small at 50\% magnitude sparsity. The pruned and pruned-plus-quantized bars track each other class by class, including on dangerous classes (\akiec, \bcc, \mel). This is the visual version of the claim that pruning, not quantization, drives the clinical degradation.}
+\label{fig:stacking_perclass}
+\end{figure}
 
-\bibitem{yu2023xpruner}
-L.~Yu and W.~Xiang.
-\newblock X-pruner: Explainable pruning for vision transformers.
-\newblock In \emph{CVPR}, 2023.
+Distillation is a good reminder that a strong dense model is not automatically a strong compressed model. In the multi-seed personal runs, the distilled dense student did not consistently beat the directly fine-tuned dense model, and the distilled pruned student was clearly not pruning-robust. That makes distillation useful as a dense-student regularizer, but not as a universal pre-treatment for sparsity.
 
-\bibitem{tschandl2018ham10000}
-P.~Tschandl, C.~Rosendahl, and H.~Kittler.
-\newblock The HAM10000 dataset, a large collection of multi-source
-  dermatoscopic images of common pigmented skin lesions.
-\newblock \emph{Scientific Data}, 5:180161, 2018.
+\begin{table}[t]
+\centering
+\small
+\caption{Knowledge distillation pre-treatment on DeiT-Tiny. Distillation is not a free robustness boost; pruned distilled models remain fragile.}
+\label{tab:kd}
+\begin{tabular}{llccc}
+\toprule
+Variant & Pruned? & Bal.\ Acc. & Mel.\ AUROC & ECE \\
+\midrule
+Direct    & No  & $0.865 \pm 0.075$ & $0.947 \pm 0.027$ & $0.035 \pm 0.018$ \\
+Distilled & No  & $0.795 \pm 0.023$ & $0.928 \pm 0.008$ & $0.033 \pm 0.009$ \\
+Direct    & Yes & $0.353 \pm 0.019$ & $0.795 \pm 0.019$ & $0.120 \pm 0.014$ \\
+Distilled & Yes & $0.215 \pm 0.029$ & $0.648 \pm 0.059$ & $0.161 \pm 0.032$ \\
+Imagenet  & No  & $0.153 \pm 0.014$ & $0.524 \pm 0.072$ & $0.237 \pm 0.060$ \\
+Imagenet  & Yes & $0.149 \pm 0.014$ & $0.577 \pm 0.107$ & $0.286 \pm 0.084$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\bibitem{tschandl2018ham10000-seg}
-P.~Tschandl.
-\newblock HAM10000 lesion segmentations.
-\newblock Harvard Dataverse, V4, 2018.
-\newblock \url{https://doi.org/10.7910/DVN/DBW86T}.
+On the deployment side, the only latency numbers that should be treated as stable are the ones measured on the actual target runtime. In the project logs, dense DeiT-Tiny ran at 11.61 ms on CPU and 2.57 ms on MPS on the same host. That is the right kind of evidence for a biomedical deployment argument: honest, device-specific, and directly relevant to the target environment.
 
-\end{thebibliography}
+\section{Recovery, Calibration, and the CNN Baseline}
+Recovery fine-tuning is useful mainly as a ``what does not rescue the model'' check. In the current multi-seed aggregate, the ranking remains largely unchanged across the sweep. Calibration-size ablation is similar: it moves Wanda a little, but it does not change the overall recommendation.
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Recovery sweep on the multi-seed aggregate. The sweep changes the numbers slightly but does not change the ordering.}
+\label{tab:recovery}
+\begin{tabular}{llcccc}
+\toprule
+Model & Criterion & Sparsity & Recovery epochs & Bal.\ Acc. & Mel.\ Sens. \\
+\midrule
+DeiT-Small & Magnitude & 50\% & 5/10/20 & $0.775 \pm 0.074$ & $0.585 \pm 0.070$ \\
+DeiT-Small & Taylor    & 50\% & 5/10/20 & $0.746 \pm 0.060$ & $0.874 \pm 0.086$ \\
+DeiT-Small & Wanda     & 50\% & 5/10/20 & $0.598 \pm 0.007$ & $0.533 \pm 0.019$ \\
+DeiT-Tiny   & Magnitude & 50\% & 5/10/20 & $0.845 \pm 0.084$ & $0.789 \pm 0.059$ \\
+DeiT-Tiny   & Taylor    & 50\% & 5/10/20 & $0.836 \pm 0.004$ & $0.700 \pm 0.035$ \\
+DeiT-Tiny   & Wanda     & 50\% & 5/10/20 & $0.794 \pm 0.023$ & $0.717 \pm 0.020$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/figures_personal/fig7_recovery_balacc.pdf}
+\includegraphics[width=\linewidth]{../results/figures_personal/fig7_recovery_mel.pdf}
+\caption{Recovery fine-tuning on balanced accuracy and melanoma sensitivity. The main lesson is that recovery does not change the criterion ranking enough to alter the biomedical recommendation.}
+\label{fig:recovery}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Calibration-size ablation for Wanda on the multi-seed aggregate. Larger calibration sets help only modestly; they do not turn Wanda into a better sparse default than Taylor.}
+\label{tab:calibration}
+\begin{tabular}{ccc}
+\toprule
+Calibration size & Bal.\ Acc. & Mel.\ Sens. \\
+\midrule
+16  & 0.610 & 0.455 \\
+32  & 0.611 & 0.375 \\
+64  & 0.612 & 0.410 \\
+128 & 0.619 & 0.407 \\
+256 & 0.618 & 0.436 \\
+512 & 0.611 & 0.408 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The MobileNetV2 baseline is an important sanity check because it shows that fragility under unstructured pruning is not unique to transformers. In this project, the CNN baseline collapses more quickly than the ViTs under the same pruning settings. That makes the main recommendation more, not less, relevant: the problem is the compression criterion and the deployment objective, not the architecture label.
+
+\begin{table}[t]
+\centering
+\small
+\caption{MobileNetV2 baseline. This is an exploratory architecture check rather than a generalization claim.}
+\label{tab:mobilenet}
+\begin{tabular}{lccc}
+\toprule
+Setup & Bal.\ Acc. & Mel.\ Sens. & Macro AUROC \\
+\midrule
+Dense      & 0.766 & 0.633 & 0.953 \\
+Magnitude 30\% & 0.722 & 0.604 & 0.950 \\
+Magnitude 50\% & 0.251 & 0.071 & 0.872 \\
+Magnitude 70\% & 0.143 & 0.000 & 0.573 \\
+Wanda 30\%     & 0.166 & 0.004 & 0.835 \\
+Wanda 50\%     & 0.143 & 0.000 & 0.532 \\
+Wanda 70\%     & 0.143 & 1.000 & 0.573 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+Compression in biomedical vision should be judged by clinical behavior, not by aggregate accuracy alone. On HAM10000, the dangerous failure mode is not simply that performance drops, but that compression can drop recall on rare harmful classes disproportionately, or can raise melanoma sensitivity while destroying calibration. Our results show that magnitude pruning is the least safe baseline, Taylor is the best sparse default, INT8 quantization is the safest first compression step, and distillation is useful primarily for dense students. The gradient-coupling probe explains why magnitude fails, and the conservative clinical tags keep us from overclaiming deployment readiness: the evaluated pipelines remain research-only. The principal contribution is a deployment-oriented evaluation protocol that biomedical teams can reuse when deciding how, and whether, to compress a model.
+
+\clearpage
+\bibliographystyle{plainnat}
+\bibliography{references}
 
 \end{document}
